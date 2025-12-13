@@ -1,21 +1,14 @@
-// ============================================================
-// FILE 6: main.dart (SUPER CLEAN WORKING VERSION — NO UNI_LINKS)
-// ============================================================
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// AUTH SCREENS
 import 'screens/auth/login_page.dart';
 import 'screens/auth/signup_page.dart';
 import 'screens/auth/forgot_password_page.dart';
-import 'screens/auth/email_verification_page.dart';
 import 'screens/auth/reset_password_page.dart';
-
-// ADMIN / OTHER SCREENS
-import 'screens/settings/about_page.dart';
-import 'screens/admin/admin_home_page.dart';
-import 'screens/admin/manage_users_page.dart';
+import 'screens/auth/email_verification_page.dart';
+import 'screens/auth/email_confirmed_page.dart';
+import 'screens/home/dummy_home_page.dart';
+import 'supabase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,36 +19,68 @@ void main() async {
         "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFhZG9yYXdldXB4eHFub3R2a3l3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyODIzNDksImV4cCI6MjA4MDg1ODM0OX0._TkkjkldNNAyNA3yFKKiAPF30PeIdAX7ALO6c-v7E1g",
   );
 
-  runApp(const TechCircleApp());
+  // ============================================================
+  // LISTEN FOR EMAIL CONFIRMATION - CREATE PROFILE AFTER VERIFICATION
+  // ============================================================
+  Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
+    final event = data.event;
+    final session = data.session;
+
+    print("🔔 Auth event: $event");
+
+    if (event == AuthChangeEvent.signedIn && session?.user != null) {
+      final user = session!.user;
+      
+      print("✅ User signed in: ${user.email}");
+      print("📧 Email confirmed at: ${user.emailConfirmedAt}");
+      
+      // Only create profile if email is confirmed
+      if (user.emailConfirmedAt != null) {
+        final service = SupabaseService();
+        final existingProfile = await service.getUserByEmail(user.email!);
+        
+        if (existingProfile == null) {
+          // Create profile from metadata stored during signup
+          final metadata = user.userMetadata;
+          
+          await service.createUserProfile(
+            name: metadata?['name'] ?? 'User',
+            email: user.email!,
+            role: metadata?['role'] ?? 'Student',
+            profileImage: metadata?['profile_image'],
+            department: metadata?['department'] ?? 'Unknown',
+            bio: metadata?['bio'] ?? '',
+            academicYear: metadata?['academic_year'] ?? 1,
+            location: metadata?['location'],
+          );
+          
+          print("✅ Profile created in database for ${user.email}");
+        } else {
+          print("ℹ️ Profile already exists for ${user.email}");
+        }
+      }
+    }
+  });
+
+  runApp(const MyApp());
 }
 
-class TechCircleApp extends StatelessWidget {
-  const TechCircleApp({Key? key}) : super(key: key);
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: "MIU Tech Circle",
-
-      theme: ThemeData(
-        colorSchemeSeed: Colors.red,
-        useMaterial3: true,
-      ),
-
-      // Default screen
-      home: const LoginPage(),
-
-      // App routes
+      initialRoute: '/login',
       routes: {
         '/login': (_) => const LoginPage(),
         '/signup': (_) => const SignUpPage(),
         '/forgot-password': (_) => const ForgotPasswordPage(),
-        '/email-verification': (_) => const EmailVerificationPage(),
         '/reset-password': (_) => const ResetPasswordPage(),
-        '/about': (_) => const AboutPage(),
-        '/admin-home': (_) => const AdminHomePage(),
-        '/manage-users': (_) => const ManageUsersPage(),
+        '/email-verification': (_) => const EmailVerificationPage(email: ''),
+        '/email-confirmed': (_) => const EmailConfirmedPage(),
+        '/dummy-home': (_) => const DummyHomePage(),
       },
     );
   }

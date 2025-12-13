@@ -1,121 +1,123 @@
-// ============================================================
-// FILE 4: email_verification_page.dart (UPDATED & FUNCTIONAL)
-// ============================================================
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'login_page.dart';
+
 class EmailVerificationPage extends StatefulWidget {
-  const EmailVerificationPage({Key? key}) : super(key: key);
+  final String email;
+  const EmailVerificationPage({super.key, required this.email});
 
   @override
   State<EmailVerificationPage> createState() => _EmailVerificationPageState();
 }
 
 class _EmailVerificationPageState extends State<EmailVerificationPage> {
-  bool _checking = false;
-  String? _email;
+  bool _resending = false;
 
-  @override
-  void initState() {
-    super.initState();
-    final user = Supabase.instance.client.auth.currentUser;
-    _email = user?.email;
-  }
-
-  // ------------------------------------------------------------
-  // CHECK EMAIL VERIFICATION STATUS
-  // ------------------------------------------------------------
-  Future<void> _checkVerification() async {
-    setState(() => _checking = true);
+  Future<void> _resendEmail() async {
+    setState(() => _resending = true);
 
     try {
-      final response = await Supabase.instance.client.auth.refreshSession();
-      final updatedUser = response.user;
+      await Supabase.instance.client.auth.resend(
+        type: OtpType.signup,
+        email: widget.email,
+      );
 
-      if (updatedUser?.emailConfirmedAt != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Email verified successfully!"),
-            backgroundColor: Colors.green,
-          ),
-        );
-
-        // Redirect to login after verification
-        Navigator.pushReplacementNamed(context, '/login');
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Email not verified yet. Please check your inbox."),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
+        const SnackBar(
+          content: Text("Verification email resent! Check your inbox."),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Failed to resend: $e"),
+          backgroundColor: Colors.red,
+        ),
       );
     }
 
-    setState(() => _checking = false);
+    setState(() => _resending = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        automaticallyImplyLeading: true,
-      ),
-
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.email_outlined, size: 90, color: Colors.red),
-              const SizedBox(height: 20),
-
-              const Text(
-                "Verify Your Email",
-                style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 15),
-
-              Text(
-                "A verification link has been sent to:\n\n$_email",
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-              const SizedBox(height: 30),
-
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _checking ? null : _checkVerification,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.mark_email_unread,
+                    size: 100, color: Colors.red),
+                const SizedBox(height: 30),
+                const Text(
+                  'Verify Your Email',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'We sent a verification link to:',
+                  style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  widget.email,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Click the link in the email to activate your account.',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 40),
+                OutlinedButton.icon(
+                  onPressed: _resending ? null : _resendEmail,
+                  icon: _resending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  label: const Text('Resend Email'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
                     ),
                   ),
-                  child: _checking
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          "I've Verified My Email",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginPage()),
+                    );
+                  },
+                  child: const Text(
+                    'Back to Login',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

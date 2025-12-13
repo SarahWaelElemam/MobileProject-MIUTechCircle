@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../supabase_service.dart';
+import '../home/dummy_home_page.dart';
+import 'email_verification_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -8,12 +13,17 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final _service = SupabaseService();
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
+
+  bool isMIUEmail(String email) {
+    return email.toLowerCase().trim().endsWith("@miuegypt.edu.eg");
+  }
 
   @override
   void dispose() {
@@ -22,24 +32,105 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  bool isMIUEmail(String email) {
-    return email.toLowerCase().endsWith("@miuegypt.edu.eg");
-  }
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
 
-  void _handleLogin() {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
+    final messenger = ScaffoldMessenger.of(context);
 
-      Future.delayed(const Duration(seconds: 2), () {
-        setState(() => _isLoading = false);
+    setState(() => _isLoading = true);
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Login successful")),
+    try {
+      // 1) Sign in
+      final response = await Supabase.instance.client.auth.signInWithPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      if (response.user == null) {
+        throw "Invalid credentials";
+      }
+
+      final user = response.user!;
+
+      // 2) Check if email is verified
+      if (user.emailConfirmedAt == null) {
+        await Supabase.instance.client.auth.signOut();
+
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text("⚠️ Please verify your email before logging in"),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
         );
 
-        // For now: always go to admin-home (you can later branch by role)
-        Navigator.pushNamed(context, '/admin-home');
-      });
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => EmailVerificationPage(
+              email: _emailController.text.trim(),
+            ),
+          ),
+        );
+        return;
+      }
+
+      // 3) Check if profile exists
+      final profile = await _service.getUserByEmail(_emailController.text.trim());
+
+      if (profile == null) {
+        // Create profile from metadata
+        final userMetadata = user.userMetadata;
+        await _service.createUserProfile(
+          name: userMetadata?['name'] ?? 'User',
+          email: _emailController.text.trim(),
+          role: userMetadata?['role'] ?? 'Student',
+          profileImage: userMetadata?['profile_image'],
+          department: userMetadata?['department'] ?? 'Unknown',
+          bio: userMetadata?['bio'] ?? '',
+          academicYear: userMetadata?['academic_year'] ?? 1,
+          location: userMetadata?['location'],
+        );
+      }
+
+      // 4) Success
+      if (!mounted) return;
+      
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text("✅ Login successful! Welcome back!"),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const DummyHomePage()),
+      );
+
+    } on AuthException catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text("❌ ${e.message}"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text("❌ Login failed: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+
+    if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -50,51 +141,37 @@ class _LoginPageState extends State<LoginPage> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(24),
             child: Form(
               key: _formKey,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo/Icon
                   Container(
                     height: 100,
                     width: 100,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: Colors.red,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Icon(
-                      Icons.lock_outline,
-                      size: 50,
-                      color: Colors.white,
-                    ),
+                    child: const Icon(Icons.lock_outline, size: 50, color: Colors.white),
                   ),
                   const SizedBox(height: 40),
 
-                  // Title
                   const Text(
                     'Welcome Back',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
-                    ),
+                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Login to your account',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 40),
 
-                  // Email Field (MIU only)
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -102,18 +179,7 @@ class _LoginPageState extends State<LoginPage> {
                       labelText: 'MIU Email',
                       hintText: 'example@miuegypt.edu.eg',
                       prefixIcon: const Icon(Icons.email_outlined, color: Colors.red),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Colors.red, width: 2),
-                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       filled: true,
                       fillColor: Colors.grey[50],
                     ),
@@ -122,14 +188,13 @@ class _LoginPageState extends State<LoginPage> {
                         return 'Please enter your email';
                       }
                       if (!isMIUEmail(value)) {
-                        return 'Only MIU student emails are allowed (@miuegypt.edu.eg)';
+                        return 'Only MIU emails are allowed';
                       }
                       return null;
                     },
                   ),
                   const SizedBox(height: 20),
 
-                  // Password Field
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -141,24 +206,9 @@ class _LoginPageState extends State<LoginPage> {
                           _obscurePassword ? Icons.visibility_off : Icons.visibility,
                           color: Colors.grey[600],
                         ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
+                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                       ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Colors.red, width: 2),
-                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       filled: true,
                       fillColor: Colors.grey[50],
                     ),
@@ -174,31 +224,22 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Forgot Password
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () {
-                        Navigator.pushNamed(context, '/forgot-password');
-                      },
-                      child: const Text(
-                        'Forgot Password?',
-                        style: TextStyle(color: Colors.red),
-                      ),
+                      onPressed: () => Navigator.pushNamed(context, '/forgot-password'),
+                      child: const Text('Forgot Password?', style: TextStyle(color: Colors.red)),
                     ),
                   ),
                   const SizedBox(height: 24),
 
-                  // Login Button
                   ElevatedButton(
                     onPressed: _isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       elevation: 2,
                     ),
                     child: _isLoading
@@ -207,38 +248,26 @@ class _LoginPageState extends State<LoginPage> {
                             width: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
                           )
                         : const Text(
                             'Login',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                   ),
+
                   const SizedBox(height: 24),
 
-                  // Sign Up Link
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        "Don't have an account? ",
-                        style: TextStyle(color: Colors.grey[600]),
-                      ),
+                      Text("Don't have an account? ", style: TextStyle(color: Colors.grey[600])),
                       GestureDetector(
-                        onTap: () {
-                          Navigator.pushNamed(context, '/signup');
-                        },
+                        onTap: () => Navigator.pushNamed(context, '/signup'),
                         child: const Text(
                           'Sign Up',
-                          style: TextStyle(
-                            color: Colors.red,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
