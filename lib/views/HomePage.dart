@@ -15,7 +15,7 @@ import 'package:project/controllers/user_controller.dart';
 import 'package:project/views/comments_page.dart';
 import 'package:project/controllers/story_controller.dart';
 import 'package:confetti/confetti.dart';
-
+import 'package:project/providers/StoryProvider.dart';
 final supabase = Supabase.instance.client;
 
 class HomePage extends StatefulWidget {
@@ -32,7 +32,7 @@ class _HomePageState extends State<HomePage> {
   final Map<int, int> _commentCounts = {};
 
   late final ScrollController _scrollController;
-
+  
   // Category selection
   String _selectedCategory = "ALL";
 
@@ -41,7 +41,6 @@ class _HomePageState extends State<HomePage> {
 
   // Cached posts future
   late Future<List<PostModel>> _postsFuture;
-  late Future<List<Map<String, dynamic>>> _storiesFuture;
 
   // Cache friend IDs for repost indicator
   List<int> _cachedFriendIds = [];
@@ -53,14 +52,13 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _scrollController = ScrollController();
     _postsFuture = _fetchPosts();
-    _storiesFuture = StoryController.fetchStories(
-    currentUserId: widget.currentUserId,
-    forYou: _showForYou,
-  );
     _confettiController =
       ConfettiController(duration: const Duration(seconds: 2));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadLikesAndRepostsForPosts();
+      context.read<StoryProvider>().loadStories(
+      currentUserId: widget.currentUserId,
+      forYou: _showForYou,
+    );
     });
   }
 
@@ -209,10 +207,6 @@ Widget build(BuildContext context) {
                         setState(() {
                           _showForYou = false;
                           _postsFuture = _fetchPosts();
-                          _storiesFuture = StoryController.fetchStories(
-                                                       currentUserId: widget.currentUserId,
-                                                        forYou: false,
-                                                      );
                           _loadLikesAndRepostsForPosts();
                         });
                       },
@@ -231,11 +225,7 @@ Widget build(BuildContext context) {
                         setState(() {
                           _showForYou = true;
                           _postsFuture = _fetchPosts();
-                          _storiesFuture = StoryController.fetchStories(
-                                                currentUserId: widget.currentUserId,
-                                                forYou: true,
-                                              );
-                          _loadLikesAndRepostsForPosts();
+                         _loadLikesAndRepostsForPosts();
                         });
                       },
                       child: Text(
@@ -382,24 +372,20 @@ CategoryChip(
                   }
 
                   final profileImage = userSnapshot.data?['profile_image'];
+return Consumer<StoryProvider>(
+  builder: (context, storyProvider, _) {
+    return StorySection(
+      myAvatarUrl: profileImage,
+      stories: storyProvider.stories,
+      hasMyStory: storyProvider.stories.any(
+        (s) => s['user_id'] == widget.currentUserId,
+      ),
+      currentUserId: widget.currentUserId,
+    );
+  },
+);
 
-                  return FutureBuilder<List<Map<String, dynamic>>>(
-                    future: _storiesFuture,
-                    builder: (context, storySnapshot) {
-                      if (!storySnapshot.hasData) {  
-                        return const SizedBox(
-                          height: 120,
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-
-                      return StorySection(
-                        myAvatarUrl: profileImage,
-                        stories: storySnapshot.data!,
-                      );
-                    },
-                  );
-                },
+},
               ),
 
               const SizedBox(height: 10),
@@ -893,7 +879,7 @@ if (!_showForYou && post.authorId != widget.currentUserId)
                                       Icons.repeat,
                                       size: 20,
                                       color: isReposted
-                                          ? Colors.green
+                                          ? Colors.red
                                           : Colors.grey[600],
                                     ),
                                     const SizedBox(width: 6),
@@ -901,7 +887,7 @@ if (!_showForYou && post.authorId != widget.currentUserId)
                                       "$count",
                                       style: TextStyle(
                                         color: isReposted
-                                            ? Colors.green
+                                            ? Colors.red
                                             : Colors.grey[700],
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -911,7 +897,7 @@ if (!_showForYou && post.authorId != widget.currentUserId)
                                       "Repost",
                                       style: TextStyle(
                                         color: isReposted
-                                            ? Colors.green
+                                            ? Colors.red
                                             : Colors.grey[600],
                                       ),
                                     ),

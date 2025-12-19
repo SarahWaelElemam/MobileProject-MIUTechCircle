@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:project/providers/post_provider.dart';
 import 'package:project/providers/comment_provider.dart';
 import 'package:project/providers/repost_provider.dart';
+import 'package:project/providers/StoryProvider.dart';
 // Views
 import 'package:project/views/HomePage.dart';
 
@@ -24,6 +25,7 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => StoryProvider()),
         ChangeNotifierProvider(
           create: (_) => PostProvider(currentUserId: currentUserId),
         ),

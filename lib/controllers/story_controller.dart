@@ -9,11 +9,9 @@ class StoryController {
     required bool forYou,
   }) async {
     try {
-      debugPrint('🔍 fetchStories - currentUserId: $currentUserId, forYou: $forYou');
-      
       List<int> friendIds = [];
 
-      // ✅ If For You → Get friends
+      // ================= FRIENDS =================
       if (forYou) {
         final friendsResult = await _supabase
             .from('friendships')
@@ -23,74 +21,59 @@ class StoryController {
               'and(friend_id.eq.$currentUserId,status.eq.accepted)',
             );
 
-        debugPrint('🔍 friendsResult: $friendsResult');
-
         for (final f in friendsResult as List) {
-          if (f['user_id'] != currentUserId) {
-            friendIds.add(f['user_id']);
-          }
-          if (f['friend_id'] != currentUserId) {
-            friendIds.add(f['friend_id']);
-          }
+          if (f['user_id'] != currentUserId) friendIds.add(f['user_id']);
+          if (f['friend_id'] != currentUserId) friendIds.add(f['friend_id']);
         }
 
-        debugPrint('🔍 friendIds: $friendIds');
-
-        // ❗ No friends → No stories
-        if (friendIds.isEmpty) {
-          debugPrint('⚠️ No friends found, returning empty list');
-          return [];
-        }
+        if (friendIds.isEmpty) return [];
       }
 
-      // =========================
-      // Stories Query
-      // =========================
-      final List<dynamic> stories;
-      
-      if (forYou) {
-        debugPrint('🔍 Querying stories for friends: ${friendIds.join(',')}');
-        stories = await _supabase
-            .from('stories')
-            .select('id, user_id, story_image, created_at')
-            .filter('user_id', 'in', '(${friendIds.join(',')})')
-            .order('created_at', ascending: false);
-      } else {
-        stories = await _supabase
-            .from('stories')
-            .select('id, user_id, story_image, created_at')
-            .order('created_at', ascending: false);
-      }
-      debugPrint('🔍 Stories fetched: ${stories.length} stories');
+      // ================= STORIES =================
+      final List<dynamic> stories = forYou
+          ? await _supabase
+              .from('stories')
+              .select('id, user_id, story_image, created_at')
+              .filter('user_id', 'in', '(${friendIds.join(',')})')
+              .order('created_at', ascending: false)
+          : await _supabase
+              .from('stories')
+              .select('id, user_id, story_image, created_at')
+              .order('created_at', ascending: false);
 
-      // =========================
-      // Attach user data
-      // =========================
       List<Map<String, dynamic>> result = [];
 
-      for (final story in stories as List) {
-        debugPrint('🔍 Processing story: ${story['id']}, user_id: ${story['user_id']}');
-        
+      for (final story in stories) {
+        // ================= USER =================
         final user = await _supabase
             .from('users')
             .select('name, profile_image')
             .eq('user_id', story['user_id'])
             .maybeSingle();
 
-        debugPrint('🔍 User data: ${user?['name']}');
+        // ================= SEEN CHECK =================
+        final seen = await _supabase
+            .from('story_views')
+            .select('id')
+            .eq('story_id', story['id'])
+            .eq('viewer_id', currentUserId)
+            .maybeSingle();
 
         result.add({
+          'id': story['id'],
+          'user_id': story['user_id'],
           'story_image': story['story_image'],
-          'user_name': user?['name'] ?? 'User',
+          'created_at': story['created_at'],
+          'user_name': user?['name'],
           'profile_image': user?['profile_image'],
+          'is_seen': seen != null, // ✅ أهم سطر
         });
       }
 
-      debugPrint('✅ Returning ${result.length} stories with user data');
       return result;
     } catch (e, stackTrace) {
       debugPrint('❌ Error fetching stories: $e');
-      debugPrint('Stack trace: $stackTrace');
+      debugPrint('$stackTrace');
       return [];
     }
   }

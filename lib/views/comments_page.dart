@@ -725,7 +725,7 @@ class _CommentsPageState extends State<CommentsPage> {
                 builder: (context, repostProvider, _) {
                   final isReposted = repostProvider.isReposted(p.postId);
                   final count = repostProvider.getRepostCount(p.postId);
-                  final color = isReposted ? Colors.green : Colors.grey.shade700;
+                  final color = isReposted ? Colors.red : Colors.grey.shade700;
 
                   return GestureDetector(
                     onTap: () async {
@@ -752,7 +752,7 @@ class _CommentsPageState extends State<CommentsPage> {
                         Text(
                           "Repost",
                           style: TextStyle(
-                            color: isReposted ? Colors.green : Colors.grey.shade600,
+                            color: isReposted ? Colors.red : Colors.grey.shade600,
                           ),
                         ),
                       ],

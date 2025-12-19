@@ -1,46 +1,146 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:project/views/story_viewer_page.dart';
+import 'package:project/providers/StoryProvider.dart';
+import 'package:provider/provider.dart';
 
 class StorySection extends StatelessWidget {
   final String? myAvatarUrl;
   final List<Map<String, dynamic>> stories;
+  final bool hasMyStory;
+  final int currentUserId;
 
   const StorySection({
     super.key,
     required this.myAvatarUrl,
     required this.stories,
+    required this.hasMyStory,
+    required this.currentUserId,
   });
+
+  // =========================
+  // هل كل stories اتشافوا؟
+  // =========================
+  bool _areAllStoriesSeen(List<Map<String, dynamic>> stories) {
+    return stories.every((s) => s['is_seen'] == true);
+  }
 
   @override
   Widget build(BuildContext context) {
+    // ================= GROUP STORIES BY USER =================
+    final Map<int, List<Map<String, dynamic>>> groupedStories = {};
+
+    for (final story in stories) {
+      final int userId = story['user_id'];
+      groupedStories.putIfAbsent(userId, () => []);
+      groupedStories[userId]!.add(story);
+    }
+
+    // ================= SORT USERS =================
+    final users = groupedStories.entries
+        .where((e) => e.key != currentUserId)
+        .toList()
+      ..sort((a, b) {
+        final aSeen = _areAllStoriesSeen(a.value);
+        final bSeen = _areAllStoriesSeen(b.value);
+        return aSeen == bSeen ? 0 : (aSeen ? 1 : -1);
+      });
+
     return SizedBox(
       height: 120,
-      child: ListView(
+      child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        children: [
-          const SizedBox(width: 8),
+        itemCount: users.length + 1,
+        itemBuilder: (context, index) {
+          // ================= MY STORY =================
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: _StoryAdd(
+                avatarUrl: myAvatarUrl,
+                hasStory: hasMyStory,
+              ),
+            );
+          }
 
-          _StoryAdd(avatarUrl: myAvatarUrl),
+          // ================= OTHER USERS =================
+          final userIndex = index - 1;
+          final entry = users[userIndex];
 
-          for (final story in stories)
-            _StoryCard(
-              name: story['user_name'] ?? "User",
-              imageUrl: story['story_image'],
-              avatarUrl: story['profile_image'],
+          final allSeen = _areAllStoriesSeen(entry.value);
+
+          // أول story مش متشاف
+          final firstUnseenIndex =
+              entry.value.indexWhere((s) => s['is_seen'] == false);
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: GestureDetector(
+             onTap: () async {
+  final finished = await Navigator.push<bool>(
+    context,
+    MaterialPageRoute(
+      builder: (_) => StoryViewerPage(
+        stories: entry.value,
+        initialIndex:
+            firstUnseenIndex == -1 ? 0 : firstUnseenIndex,
+        currentUserId: currentUserId,
+      ),
+    ),
+  );
+
+  // ✅ دي الإضافة المهمة
+  if (finished == true) {
+    await context.read<StoryProvider>().refresh(
+      currentUserId: currentUserId,
+      forYou: true, // لو عندك Discover / ForYou عدليها حسب التاب
+    );
+  }
+
+  // لو خلص stories الشخص ده → افتحي اللي بعده
+  if (finished == true && userIndex + 1 < users.length) {
+    final nextUser = users[userIndex + 1];
+    final nextFirstUnseen =
+        nextUser.value.indexWhere((s) => s['is_seen'] == false);
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StoryViewerPage(
+          stories: nextUser.value,
+          initialIndex:
+              nextFirstUnseen == -1 ? 0 : nextFirstUnseen,
+          currentUserId: currentUserId,
+        ),
+      ),
+    );
+  }
+},
+child: _StoryCard(
+                name: entry.value.first['user_name'] ?? "User",
+                imageUrl: entry.value.first['story_image'],
+                avatarUrl: entry.value.first['profile_image'],
+                allSeen: allSeen,
+              ),
             ),
-
-          const SizedBox(width: 8),
-        ],
+          );
+        },
       ),
     );
   }
 }
 
+//
 // ========================= MY STORY =========================
+//
 class _StoryAdd extends StatelessWidget {
   final String? avatarUrl;
+  final bool hasStory;
 
-  const _StoryAdd({this.avatarUrl});
+  const _StoryAdd({
+    this.avatarUrl,
+    required this.hasStory,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -49,19 +149,21 @@ class _StoryAdd extends StatelessWidget {
       child: Column(
         children: [
           Stack(
-            clipBehavior: Clip.none,
             children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: Colors.grey.shade300,
-                backgroundImage:
-                    (avatarUrl != null && avatarUrl!.isNotEmpty)
-                        ? NetworkImage(avatarUrl!)
-                        : null,
-                child: (avatarUrl == null || avatarUrl!.isEmpty)
-                    ? const Icon(Icons.person, size: 28)
-                    : null,
-              ),
+              if (hasStory)
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [Color(0xFFF44336), Color(0xFFFF9800)],
+                    ),
+                  ),
+                  child: _avatar(),
+                )
+              else
+                _avatar(),
+
               Positioned(
                 bottom: 0,
                 right: 0,
@@ -84,76 +186,90 @@ class _StoryAdd extends StatelessWidget {
       ),
     );
   }
+
+  Widget _avatar() {
+    return CircleAvatar(
+      radius: 32,
+      backgroundImage:
+          (avatarUrl != null && avatarUrl!.isNotEmpty)
+              ? NetworkImage(avatarUrl!)
+              : null,
+      child: (avatarUrl == null || avatarUrl!.isEmpty)
+          ? const Icon(Icons.person)
+          : null,
+    );
+  }
 }
 
+//
 // ========================= STORY CARD =========================
+//
 class _StoryCard extends StatelessWidget {
   final String name;
   final String imageUrl;
   final String? avatarUrl;
+  final bool allSeen;
 
   const _StoryCard({
     required this.name,
     required this.imageUrl,
     required this.avatarUrl,
+    required this.allSeen,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: SizedBox(
-        width: 118,
-        child: Column(
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Container(
-                  width: 110,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    gradient: const LinearGradient(
-                      colors: [
-                        Color.fromARGB(205, 244, 67, 54),
-                        Color.fromARGB(255, 255, 150, 85),
-                      ],
-                    ),
-                  ),
-                  padding: const EdgeInsets.all(3),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(15),
-                    child: ImageFiltered(
-                      imageFilter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
-                      child: Image.network(imageUrl, fit: BoxFit.cover),
-                    ),
+    return SizedBox(
+      width: 118,
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 110,
+                height: 72,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: LinearGradient(
+                    colors: allSeen
+                        ? [Colors.grey.shade400, Colors.grey.shade500]
+                        : [
+                            const Color(0xFFF44336),
+                            const Color(0xFFFF9800),
+                          ],
                   ),
                 ),
-                Positioned(
-                  bottom: -14,
-                  left: (110 / 2) - 29,
+                padding: const EdgeInsets.all(3),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(15),
+                  child: ImageFiltered(
+                    imageFilter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+                    child: Image.network(imageUrl, fit: BoxFit.cover),
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: -14,
+                left: (110 / 2) - 29,
+                child: CircleAvatar(
+                  radius: 29,
+                  backgroundColor: Colors.white,
                   child: CircleAvatar(
-                    radius: 29,
-                    backgroundColor: Colors.white,
-                    child: CircleAvatar(
-                      radius: 26,
-                      backgroundImage:
-                          (avatarUrl != null && avatarUrl!.isNotEmpty)
-                              ? NetworkImage(avatarUrl!)
-                              : null,
-                      child: (avatarUrl == null || avatarUrl!.isEmpty)
-                          ? const Icon(Icons.person, size: 16)
-                          : null,
-                    ),
+                    radius: 26,
+                    backgroundImage:
+                        avatarUrl != null ? NetworkImage(avatarUrl!) : null,
+                    child: avatarUrl == null
+                        ? const Icon(Icons.person, size: 16)
+                        : null,
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Text(name, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text(name, style: const TextStyle(fontSize: 12)),
+        ],
       ),
     );
   }
