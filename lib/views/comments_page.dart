@@ -7,6 +7,7 @@ import '../models/posts_model.dart';
 import '../models/tag_model.dart';
 import 'package:project/providers/post_provider.dart';
 import 'package:project/providers/repost_provider.dart';
+import 'package:project/providers/SavedPostProvider.dart';
 
 final supabase = Supabase.instance.client;
 
@@ -431,10 +432,6 @@ class _CommentsPageState extends State<CommentsPage> {
                     ),
                   ),
 
-                  IconButton(
-                    icon: const Icon(Icons.send, color: Colors.blue),
-                    onPressed: () => _addReply(comment.commentId),
-                  )
                 ],
               ),
             ),
@@ -596,13 +593,28 @@ class _CommentsPageState extends State<CommentsPage> {
               ),
 
               // optional top-right actions (save/bookmark)
-              IconButton(
-                icon: const Icon(Icons.bookmark_border_rounded, size: 20),
-                onPressed: () {
-                  // TODO: implement save/unsave
-                },
-              ),
-            ],
+             Consumer<SavedPostProvider>(
+  builder: (context, savedProvider, _) {
+    final isSaved = savedProvider.isSaved(p.postId);
+
+    return IconButton(
+      icon: Icon(
+        isSaved
+            ? Icons.bookmark
+            : Icons.bookmark_border_rounded,
+        color: isSaved ? Colors.red : Colors.grey,
+        size: 22,
+      ),
+      onPressed: () async {
+        await savedProvider.toggleSave(
+          userId: widget.currentUserId,
+          postId: p.postId,
+        );
+      },
+    );
+  },
+),
+ ],
           ),
 
           const SizedBox(height: 12),

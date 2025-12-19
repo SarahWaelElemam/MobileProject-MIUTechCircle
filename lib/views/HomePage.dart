@@ -16,6 +16,7 @@ import 'package:project/views/comments_page.dart';
 import 'package:project/controllers/story_controller.dart';
 import 'package:confetti/confetti.dart';
 import 'package:project/providers/StoryProvider.dart';
+import 'package:project/providers/SavedPostProvider.dart';
 final supabase = Supabase.instance.client;
 
 class HomePage extends StatefulWidget {
@@ -55,11 +56,15 @@ class _HomePageState extends State<HomePage> {
     _confettiController =
       ConfettiController(duration: const Duration(seconds: 2));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<StoryProvider>().loadStories(
-      currentUserId: widget.currentUserId,
-      forYou: _showForYou,
-    );
-    });
+  context.read<StoryProvider>().loadStories(
+    currentUserId: widget.currentUserId,
+    forYou: _showForYou,
+  );
+
+  context.read<SavedPostProvider>()
+      .loadSavedPosts(widget.currentUserId);
+});
+
   }
 
   Future<void> _loadLikesAndRepostsForPosts() async {
@@ -692,48 +697,50 @@ return Consumer<StoryProvider>(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundImage: avatar != null ? NetworkImage(avatar) : null,
-                            child: avatar == null ? const Icon(Icons.person) : null,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(userName,
-                                    style: const TextStyle(
-                                        fontSize: 14, fontWeight: FontWeight.bold)),
-                                Text(
-                                  timeAgo(post.createdAt),
-                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                          ),
-if (!_showForYou && post.authorId != widget.currentUserId)
-  FutureBuilder<bool>(
-    future: _isFollowing(post.authorId),
-    builder: (context, followSnapshot) {
-      final isFollowing = followSnapshot.data ?? false;
+  children: [
+    CircleAvatar(
+      backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+      child: avatar == null ? const Icon(Icons.person) : null,
+    ),
+    const SizedBox(width: 10),
 
-      return GestureDetector(
-        onTap: () => _toggleFollow(post.authorId, userName),
-        child: Text(
-          isFollowing ? "" : "+ Follow",
-          style: TextStyle(
-            color: Colors.red,
-            fontWeight: FontWeight.bold,
+    Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(userName,
+              style: const TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.bold)),
+          Text(
+            timeAgo(post.createdAt),
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
-        ),
-      );
-    },
-  )
+        ],
+      ),
+    ),
 
-                        ],
-                      ),
-                      const SizedBox(height: 10),
+    // 🔖 SAVE ICON
+    Consumer<SavedPostProvider>(
+      builder: (context, savedProvider, _) {
+        final isSaved = savedProvider.isSaved(post.postId);
+
+        return IconButton(
+          icon: Icon(
+            isSaved ? Icons.bookmark : Icons.bookmark_border,
+            color: isSaved ? Colors.red : Colors.grey,
+          ),
+          onPressed: () {
+            savedProvider.toggleSave(
+              userId: widget.currentUserId,
+              postId: post.postId,
+            );
+          },
+        );
+      },
+    ),
+  ],
+),
+ const SizedBox(height: 10),
                       Text(
                         post.content,
                         style: const TextStyle(fontSize: 14),

@@ -7,6 +7,7 @@ import 'package:project/providers/post_provider.dart';
 import 'package:project/providers/comment_provider.dart';
 import 'package:project/providers/repost_provider.dart';
 import 'package:project/providers/StoryProvider.dart';
+import 'package:project/providers/SavedPostProvider.dart';
 // Views
 import 'package:project/views/HomePage.dart';
 
@@ -25,6 +26,7 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => SavedPostProvider()),
         ChangeNotifierProvider(create: (_) => StoryProvider()),
         ChangeNotifierProvider(
           create: (_) => PostProvider(currentUserId: currentUserId),
