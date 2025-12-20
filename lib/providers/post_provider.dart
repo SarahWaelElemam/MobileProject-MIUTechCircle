@@ -11,32 +11,46 @@ class PostProvider extends ChangeNotifier {
   final Set<int> likedByMe = {};
 
   final int currentUserId;
+
   PostProvider({required this.currentUserId});
 
-  // load like count and whether current user liked the post
+  // ===============================
+  // Load likes for a specific post
+  // ===============================
   Future<void> loadPostLikes(int postId) async {
     try {
-      final likes = await _supabase.from('likes').select('user_id').eq('post_id', postId);
-      final list = likes as List;
-      postLikeCounts[postId] = list.length;
-      likedByMe.remove(postId); // reset then check
-      for (final l in list) {
-        if (l['user_id'] == currentUserId) {
+      final response = await _supabase
+          .from('likes')
+          .select('user_id')
+          .eq('post_id', postId);
+
+      final List likesList = response as List;
+
+      // set like count
+      postLikeCounts[postId] = likesList.length;
+
+      // check if current user liked this post
+      likedByMe.remove(postId);
+      for (final like in likesList) {
+        if (like['user_id'] == currentUserId) {
           likedByMe.add(postId);
           break;
         }
       }
+
       notifyListeners();
     } catch (e) {
-      // ignore or log
+      debugPrint('Error loading likes for post $postId: $e');
     }
   }
 
-  // optimistic toggle
+  // ===============================
+  // Toggle like (Optimistic UI)
+  // ===============================
   Future<void> togglePostLike(int postId) async {
-    final currentlyLiked = likedByMe.contains(postId);
+    final bool currentlyLiked = likedByMe.contains(postId);
 
-    // optimistic update local state
+    // ---- Optimistic update ----
     if (currentlyLiked) {
       likedByMe.remove(postId);
       postLikeCounts[postId] = (postLikeCounts[postId] ?? 1) - 1;
@@ -48,11 +62,13 @@ class PostProvider extends ChangeNotifier {
 
     try {
       if (currentlyLiked) {
-        await _supabase
-            .from('likes')
-            .delete()
-            .match({'post_id': postId, 'user_id': currentUserId});
+        // unlike
+        await _supabase.from('likes').delete().match({
+          'post_id': postId,
+          'user_id': currentUserId,
+        });
       } else {
+        // like
         await _supabase.from('likes').insert({
           'post_id': postId,
           'user_id': currentUserId,
@@ -60,7 +76,7 @@ class PostProvider extends ChangeNotifier {
         });
       }
     } catch (e) {
-      // rollback on error
+      // ---- rollback if error ----
       if (currentlyLiked) {
         likedByMe.add(postId);
         postLikeCounts[postId] = (postLikeCounts[postId] ?? 0) + 1;
@@ -69,6 +85,18 @@ class PostProvider extends ChangeNotifier {
         postLikeCounts[postId] = (postLikeCounts[postId] ?? 1) - 1;
       }
       notifyListeners();
+      debugPrint('Error toggling like for post $postId: $e');
     }
+  }
+
+  // ===============================
+  // Helper getters (optional)
+  // ===============================
+  int getLikeCount(int postId) {
+    return postLikeCounts[postId] ?? 0;
+  }
+
+  bool isLikedByMe(int postId) {
+    return likedByMe.contains(postId);
   }
 }

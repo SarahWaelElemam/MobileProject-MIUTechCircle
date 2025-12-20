@@ -411,30 +411,39 @@ class _CommentsPageState extends State<CommentsPage> {
 
           // REPLY INPUT
           if (_replyControllers.containsKey(comment.commentId))
-            Padding(
-              padding: const EdgeInsets.only(left: 46),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: TextField(
-                        controller: _replyControllers[comment.commentId],
-                        decoration: const InputDecoration(
-                          hintText: "Write a reply...",
-                          border: InputBorder.none,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                ],
+  Padding(
+    padding: const EdgeInsets.only(left: 46),
+    child: Row(
+      children: [
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: TextField(
+              controller: _replyControllers[comment.commentId],
+              decoration: const InputDecoration(
+                hintText: "Write a reply...",
+                border: InputBorder.none,
               ),
             ),
+          ),
+        ),
+
+        const SizedBox(width: 6),
+
+        // ✅ السهم اللي كنتِ بتدوري عليه
+        IconButton(
+          icon: const Icon(Icons.send, color: Colors.blue),
+          onPressed: () {
+            _addReply(comment.commentId);
+          },
+        ),
+      ],
+    ),
+  ),
 
           // CHILD REPLIES
           for (final reply in replies) ...[

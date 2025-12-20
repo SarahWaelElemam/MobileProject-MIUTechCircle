@@ -406,12 +406,18 @@ return Consumer<StoryProvider>(
                   }
 
                   if (!postSnapshot.hasData ||
-                      postSnapshot.data!.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.only(top: 20),
-                      child: Center(child: Text("No posts available")),
-                    );
-                  }
+    postSnapshot.data!.isEmpty) {
+  return const Padding(
+    padding: EdgeInsets.only(top: 20),
+    child: Center(child: Text("No posts available")),
+  );
+}
+
+// 👇👇👇 السطر المهم جدًا
+WidgetsBinding.instance.addPostFrameCallback((_) {
+  _loadLikesAndRepostsForPosts();
+});
+
 
                   return Column(
                     children: postSnapshot.data!

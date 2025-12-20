@@ -8,6 +8,7 @@ class PostModel {
   final String? mediaUrl;
   final DateTime createdAt;
   final DateTime? updatedAt;
+  final int likesCount;
 
   PostModel({
     required this.postId,
@@ -19,6 +20,7 @@ class PostModel {
     this.mediaUrl,
     required this.createdAt,
     this.updatedAt,
+    required this.likesCount
   });
 
   factory PostModel.fromMap(Map<String, dynamic> map) {
@@ -34,6 +36,9 @@ class PostModel {
       updatedAt: map['updated_at'] != null
           ? DateTime.tryParse(map['updated_at'])
           : null,
+          likesCount: (map['likes'] != null && map['likes'].isNotEmpty)
+        ? map['likes'][0]['count']
+        : 0,
     );
   }
 
