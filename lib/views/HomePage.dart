@@ -1,5 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:project/controllers/competition_request_controller.dart';
+import 'package:project/models/competition_request_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:project/models/posts_model.dart';
 import 'package:project/models/tag_model.dart';
@@ -13,31 +15,46 @@ import 'package:project/providers/post_provider.dart';
 import 'package:project/providers/repost_provider.dart';
 import 'package:project/controllers/user_controller.dart';
 import 'package:project/views/comments_page.dart';
-import 'package:project/controllers/story_controller.dart';
 import 'package:confetti/confetti.dart';
 import 'package:project/providers/StoryProvider.dart';
 import 'package:project/providers/SavedPostProvider.dart';
 import 'package:project/models/announcement_model.dart';
 import 'package:add_2_calendar/add_2_calendar.dart';
+import 'widgets/announcement_card.dart';
+import 'package:project/controllers/announcement_controller.dart';
+import 'widgets/competition_request_card.dart';
+
 
 final supabase = Supabase.instance.client;
 
 class FeedItem {
   final PostModel? post;
   final AnnouncementModel? announcement;
+  final CompetitionRequestModel? request;
   final DateTime createdAt;
-  final bool isAnnouncement;
+  final FeedType type;
 
   FeedItem.fromPost(this.post)
       : announcement = null,
+        request = null,
         createdAt = post!.createdAt,
-        isAnnouncement = false;
+        type = FeedType.post;
 
   FeedItem.fromAnnouncement(this.announcement)
       : post = null,
-        createdAt = announcement!.date,
-        isAnnouncement = true;
+        request = null,
+        createdAt = announcement!.createdAt,
+        type = FeedType.announcement;
+
+  FeedItem.fromRequest(this.request)
+      : post = null,
+        announcement = null,
+        createdAt = request!.createdAt,
+        type = FeedType.request;
 }
+
+enum FeedType { post, announcement, request }
+
 class HomePage extends StatefulWidget {
   final int currentUserId;
 
@@ -50,7 +67,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   // Cache comment counts
   final Map<int, int> _commentCounts = {};
-
+  bool _isLoadingFeed = false;
   late final ScrollController _scrollController;
   
   // Category selection
@@ -87,25 +104,16 @@ late Future<List<FeedItem>> _feedFuture;
   }
 Future<List<AnnouncementModel>> _fetchAnnouncements() async {
   try {
-    var query = supabase.from('announcement').select();
+    int? categoryId;
 
-    if (_selectedCategory != "ALL" && _selectedCategory != "Announcements") {
-  final categoryId = _categoryNameToId(_selectedCategory);
-  query = query.eq('category_id', categoryId);
-}
+    if (_selectedCategory != "ALL" &&
+        _selectedCategory != "Announcements") {
+      categoryId = _categoryNameToId(_selectedCategory);
+    }
 
-    final data = await query.order('date', ascending: false);
-    
-    debugPrint("📢 Raw announcement data: $data");
-    debugPrint("📢 Number of announcements fetched: ${(data as List).length}");
-    
-    final announcements = (data as List)
-        .map((e) => AnnouncementModel.fromMap(e as Map<String, dynamic>))
-        .toList();
-    
-    debugPrint("✅ Parsed announcements: ${announcements.length}");
-    
-    return announcements;
+    return await AnnouncementController.fetchAnnouncements(
+      categoryId: categoryId,
+    );
   } catch (e) {
     debugPrint("❌ Error fetching announcements: $e");
     return [];
@@ -113,39 +121,47 @@ Future<List<AnnouncementModel>> _fetchAnnouncements() async {
 }
 
 Future<List<FeedItem>> _fetchFeed() async {
+  if (_isLoadingFeed) return [];
+
+  _isLoadingFeed = true;
+
   try {
     List<FeedItem> feedItems = [];
 
-    // Fetch posts
     final posts = await _fetchPosts();
-    debugPrint("📝 Posts fetched: ${posts.length}");
     feedItems.addAll(posts.map((p) => FeedItem.fromPost(p)));
 
-    // Fetch announcements
     final announcements = await _fetchAnnouncements();
-    debugPrint("📢 Announcements fetched: ${announcements.length}");
-    feedItems.addAll(announcements.map((a) => FeedItem.fromAnnouncement(a)));
+    feedItems.addAll(
+      announcements.map((a) => FeedItem.fromAnnouncement(a)),
+    );
 
-    // Sort by date (newest first)
-    feedItems.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    
-    debugPrint("🎯 Total feed items: ${feedItems.length}");
-    debugPrint("   - Posts: ${feedItems.where((f) => !f.isAnnouncement).length}");
-    debugPrint("   - Announcements: ${feedItems.where((f) => f.isAnnouncement).length}");
+    final requests =
+        await CompetitionRequestController.fetchAllRequests();
+    feedItems.addAll(
+      requests.map((r) => FeedItem.fromRequest(r)),
+    );
+
+    feedItems.sort(
+      (a, b) => b.createdAt.compareTo(a.createdAt),
+    );
 
     return feedItems;
   } catch (e) {
     debugPrint("❌ Error loading feed: $e");
     return [];
+  } finally {
+    _isLoadingFeed = false;
   }
 }
+
 Future<void> _loadLikesAndRepostsForPosts(List<FeedItem> items) async {
   try {
     final postProvider = Provider.of<PostProvider>(context, listen: false);
     final repostProvider = Provider.of<RepostProvider>(context, listen: false);
     
     final postIds = items
-        .where((item) => !item.isAnnouncement)
+        .where((item) => item.type == FeedType.post)
         .map((item) => item.post!.postId)
         .toList();
     
@@ -209,212 +225,6 @@ Future<void> _toggleFollow(int targetUserId, String userName) async {
   }
 
   setState(() {});
-}
-Widget _announcementCard(AnnouncementModel announcement) {
-  return FutureBuilder<Map<String, dynamic>?>(
-    future: UserController.fetchUserData(announcement.authorId),
-    builder: (context, snapshot) {
-      // ✅ FIX 1: Proper loading state with fixed height to prevent layout shifts
-      if (snapshot.connectionState == ConnectionState.waiting) {
-        return Container(
-          height: 150,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.orange.shade300, width: 2),
-          ),
-          child: const Center(child: CircularProgressIndicator()),
-        );
-      }
-
-      // ✅ FIX 2: Handle error state separately
-      if (snapshot.hasError) {
-        debugPrint("❌ Error loading user data for announcement: ${snapshot.error}");
-        return Container(
-          height: 100,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.orange.shade300, width: 2),
-          ),
-          child: const Center(
-            child: Text(
-              "Error loading announcement author",
-              style: TextStyle(color: Colors.red, fontSize: 12),
-            ),
-          ),
-        );
-      }
-
-      // ✅ FIX 3: Handle null/no data case
-      if (!snapshot.hasData || snapshot.data == null) {
-        debugPrint("⚠️ No user data found for author_id: ${announcement.authorId}");
-        return Container(
-          height: 100,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.orange.shade300, width: 2),
-          ),
-          child: const Center(
-            child: Text(
-              "User data not found",
-              style: TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-          ),
-        );
-      }
-
-      final user = snapshot.data!;
-      final userName = user["name"] ?? "Admin";
-      final avatar = user["profile_image"];
-
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.orange.shade300, width: 2),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.campaign, size: 16, color: Colors.orange),
-                  SizedBox(width: 4),
-                  Text(
-                    "ANNOUNCEMENT",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // Author info
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundImage: avatar != null ? NetworkImage(avatar) : null,
-                  child: avatar == null ? const Icon(Icons.person) : null,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        userName,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        "${announcement.time} • ${timeAgo(announcement.date)}",
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Title
-            Text(
-              announcement.title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // Description
-            Text(
-              announcement.description,
-              style: const TextStyle(fontSize: 14),
-            ),
-            
-            const SizedBox(height: 12),
-
-            // Add to Calendar Button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => _addToCalendar(announcement),
-                icon: const Icon(Icons.calendar_today, size: 18),
-                label: const Text("Add to Calendar"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade400,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 0,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
-
-// Add this method to handle calendar event creation:
-void _addToCalendar(AnnouncementModel announcement) {
-  final Event event = Event(
-    title: announcement.title,
-    description: announcement.description,
-    location: '',
-    startDate: announcement.fullDateTime,
-    endDate: announcement.fullDateTime.add(const Duration(hours: 1)),
-    iosParams: const IOSParams(
-      reminder: Duration(minutes: 30),
-    ),
-    androidParams: const AndroidParams(
-      emailInvites: [],
-    ),
-  );
-
-  Add2Calendar.addEvent2Cal(event).then((success) {
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Event added to calendar successfully! 📅'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to add event to calendar'),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    } 
-  });
 }
 
 // Add this method to handle calendar event creation:
@@ -683,7 +493,12 @@ FutureBuilder<List<FeedItem>>(
   future: _feedFuture,
   builder: (context, snapshot) {
     if (snapshot.connectionState == ConnectionState.waiting) {
-      return const Center(child: CircularProgressIndicator());
+      return Padding(
+    padding: const EdgeInsets.only(top: 40),
+    child: Center(
+      child: CircularProgressIndicator(),
+    ),
+  );
     }
 
     if (!snapshot.hasData || snapshot.data!.isEmpty) {
@@ -698,16 +513,26 @@ FutureBuilder<List<FeedItem>>(
     });
 
     return Column(
-      children: snapshot.data!.map((item) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: item.isAnnouncement
-              ? _announcementCard(item.announcement!)
-              : _feedCard(item.post!),
+  children: snapshot.data!.map((item) {
+    switch (item.type) {
+      case FeedType.post:
+        return _feedCard(item.post!);
+
+      case FeedType.announcement:
+        return AnnouncementCard(
+          announcement: item.announcement!,
+          currentUserId: widget.currentUserId,
         );
-      }).toList(),
-    );
-  },
+
+      case FeedType.request:
+        return CompetitionRequestCard(
+          request: item.request!,
+          currentUserId: widget.currentUserId,
+        );
+    }
+  }).toList(),
+);
+},
 )
             ],
           ),
@@ -986,7 +811,7 @@ FutureBuilder<List<FeedItem>>(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                     Row(
   children: [
     CircleAvatar(
       backgroundImage: avatar != null ? NetworkImage(avatar) : null,
@@ -998,9 +823,13 @@ FutureBuilder<List<FeedItem>>(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(userName,
-              style: const TextStyle(
-                  fontSize: 14, fontWeight: FontWeight.bold)),
+          Text(
+            userName,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           Text(
             timeAgo(post.createdAt),
             style: const TextStyle(fontSize: 12, color: Colors.grey),
@@ -1008,6 +837,20 @@ FutureBuilder<List<FeedItem>>(
         ],
       ),
     ),
+
+    // ➕ FOLLOW BUTTON (لو مش Friend)
+    if (!isFriend && post.authorId != widget.currentUserId)
+      TextButton.icon(
+        onPressed: () {
+          _toggleFollow(post.authorId, userName);
+        },
+        icon: const Icon(Icons.person_add, size: 18),
+        label: const Text("Follow"),
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.red,
+          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
 
     // 🔖 SAVE ICON
     Consumer<SavedPostProvider>(
@@ -1030,7 +873,7 @@ FutureBuilder<List<FeedItem>>(
     ),
   ],
 ),
- const SizedBox(height: 10),
+const SizedBox(height: 10),
                       Text(
                         post.content,
                         style: const TextStyle(fontSize: 14),
