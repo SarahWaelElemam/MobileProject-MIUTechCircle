@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:project/views/SavedPostsPage.dart';
 
 class UserDrawerContent extends StatefulWidget {
   final int userId;
@@ -112,7 +113,17 @@ class _UserDrawerContentState extends State<UserDrawerContent> {
                   ListTile(
                     leading: const Icon(Icons.bookmark),
                     title: const Text("Saved Posts"),
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.pop(context); // Close drawer
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => SavedPostsPage(
+                            currentUserId: widget.userId,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   ListTile(
                     leading: const Icon(Icons.group),
