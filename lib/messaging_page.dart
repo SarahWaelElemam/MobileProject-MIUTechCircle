@@ -4,17 +4,18 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart'; // For kIsWeb
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // Get Supabase client
 final supabase = Supabase.instance.client;
 
 // MOCKED USER ID - Currently set to your test user
-const String MOCKED_USER_ID = '22222222-2222-2222-2222-222222222222';
+const String MOCKED_USER_ID = '11111111-1111-1111-1111-111111111111';
 
 // Professional Color Palette
 class AppColors {
-  static const primary = Color(0xFFD32F2F); // Professional red
+  static const primary = Color(0xFFD32F2F); // Professional red1
   static const primaryDark = Color(0xFFB71C1C);
   static const primaryLight = Color(0xFFEF5350);
   static const background = Color(0xFFF5F5F5);
@@ -1202,14 +1203,7 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
                   _pickAndSendImage();
                 },
               ),
-              _buildAttachmentOption(
-                Icons.camera_alt_rounded,
-                'Take Photo',
-                () {
-                  Navigator.pop(context);
-                  _takeAndSendPhoto();
-                },
-              ),
+             
               _buildAttachmentOption(
                 Icons.attach_file_rounded,
                 'Send File',
@@ -1255,8 +1249,26 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
     );
   }
 
-  Future<void> _pickAndSendImage() async {
-    try {
+ Future<void> _pickAndSendImage() async {
+  try {
+    if (kIsWeb) {
+      // ✅ Use file_picker for web
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+      );
+      
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.bytes != null) {
+          await _sendAttachmentFromBytes(
+            file.bytes!,
+            file.name,
+            'image/${file.extension ?? 'png'}',
+          );
+        }
+      }
+    } else {
+      // Mobile: use image_picker
       final ImagePicker picker = ImagePicker();
       final XFile? image = await picker.pickImage(
         source: ImageSource.gallery,
@@ -1268,53 +1280,101 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
       if (image != null) {
         await _sendAttachment(image.path, image.name, 'image/${image.path.split('.').last}');
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.primary,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(16),
-          ),
-        );
-      }
     }
-  }
-
-  Future<void> _takeAndSendPhoto() async {
-    try {
-      final ImagePicker picker = ImagePicker();
-      final XFile? photo = await picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 1920,
-        maxHeight: 1920,
-        imageQuality: 85,
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
       );
-
-      if (photo != null) {
-        await _sendAttachment(photo.path, photo.name, 'image/${photo.path.split('.').last}');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.primary,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(16),
-          ),
-        );
-      }
     }
   }
+}
 
+Future<void> _sendAttachmentFromBytes(
+  Uint8List bytes,
+  String fileName,
+  String mimeType,
+) async {
+  if (conversationId == null || currentUserId == null) return;
+
+  setState(() => isSending = true);
+
+  try {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final extension = fileName.split('.').last;
+    final uniqueFileName = '$conversationId/$timestamp.$extension';
+
+    await supabase.storage
+        .from('chat-attachments')
+        .uploadBinary(
+          uniqueFileName,
+          bytes,
+          fileOptions: FileOptions(
+            contentType: mimeType,
+            upsert: false,
+          ),
+        );
+
+    final publicUrl = supabase.storage
+        .from('chat-attachments')
+        .getPublicUrl(uniqueFileName);
+
+    await supabase.from('messages').insert({
+      'conversation_id': conversationId,
+      'sender_id': currentUserId,
+      'content': fileName,
+      'attachment_url': publicUrl,
+      'attachment_type': mimeType,
+      'attachment_name': fileName,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+
+    await supabase
+        .from('conversations')
+        .update({'updated_at': DateTime.now().toIso8601String()})
+        .eq('id', conversationId!);
+
+    widget.chat.lastMessage = '📎 $fileName';
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  } finally {
+    setState(() => isSending = false);
+  }
+}
+ 
   Future<void> _pickAndSendFile() async {
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.any);
+  try {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.any);
 
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
+    if (result != null && result.files.isNotEmpty) {
+      final file = result.files.first;
+      
+      // ✅ FIX: Use bytes for web compatibility
+      if (kIsWeb) {
+        // Web: use bytes
+        if (file.bytes != null) {
+          await _sendAttachmentFromBytes(
+            file.bytes!,
+            file.name,
+            _getMimeType(file.extension ?? ''),
+          );
+        }
+      } else {
+        // Mobile/Desktop: use path
         if (file.path != null) {
           await _sendAttachment(
             file.path!,
@@ -1323,20 +1383,20 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
           );
         }
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.primary,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(16),
-          ),
-        );
-      }
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
     }
   }
-
+}
   String _getMimeType(String extension) {
     switch (extension.toLowerCase()) {
       case 'pdf':
