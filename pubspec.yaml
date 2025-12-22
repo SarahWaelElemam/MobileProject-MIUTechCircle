@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   provider: ^6.1.5+1
   supabase_flutter: ^2.10.3
+  add_2_calendar: ^3.0.1
+
 
 dev_dependencies:
   flutter_test:

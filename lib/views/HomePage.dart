@@ -17,8 +17,27 @@ import 'package:project/controllers/story_controller.dart';
 import 'package:confetti/confetti.dart';
 import 'package:project/providers/StoryProvider.dart';
 import 'package:project/providers/SavedPostProvider.dart';
+import 'package:project/models/announcement_model.dart';
+import 'package:add_2_calendar/add_2_calendar.dart';
+
 final supabase = Supabase.instance.client;
 
+class FeedItem {
+  final PostModel? post;
+  final AnnouncementModel? announcement;
+  final DateTime createdAt;
+  final bool isAnnouncement;
+
+  FeedItem.fromPost(this.post)
+      : announcement = null,
+        createdAt = post!.createdAt,
+        isAnnouncement = false;
+
+  FeedItem.fromAnnouncement(this.announcement)
+      : post = null,
+        createdAt = announcement!.date,
+        isAnnouncement = true;
+}
 class HomePage extends StatefulWidget {
   final int currentUserId;
 
@@ -41,7 +60,7 @@ class _HomePageState extends State<HomePage> {
   bool _showForYou = false;
 
   // Cached posts future
-  late Future<List<PostModel>> _postsFuture;
+late Future<List<FeedItem>> _feedFuture;
 
   // Cache friend IDs for repost indicator
   List<int> _cachedFriendIds = [];
@@ -52,7 +71,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _scrollController = ScrollController();
-    _postsFuture = _fetchPosts();
+    _feedFuture = _fetchFeed();
     _confettiController =
       ConfettiController(duration: const Duration(seconds: 2));
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -66,26 +85,82 @@ class _HomePageState extends State<HomePage> {
 });
 
   }
+Future<List<AnnouncementModel>> _fetchAnnouncements() async {
+  try {
+    var query = supabase.from('announcement').select();
 
-  Future<void> _loadLikesAndRepostsForPosts() async {
-    try {
-      final posts = await _postsFuture;
-      final postProvider = Provider.of<PostProvider>(context, listen: false);
-      final repostProvider = Provider.of<RepostProvider>(context, listen: false);
-      
-      final postIds = posts.map((p) => p.postId).toList();
-      
-      // Load likes for all posts
-      for (final p in posts) {
-        postProvider.loadPostLikes(p.postId);
-      }
-      
-      // Batch load reposts
-      await repostProvider.loadRepostsForPosts(postIds);
-    } catch (e) {
-      debugPrint('Error loading likes and reposts: $e');
-    }
+    if (_selectedCategory != "ALL" && _selectedCategory != "Announcements") {
+  final categoryId = _categoryNameToId(_selectedCategory);
+  query = query.eq('category_id', categoryId);
+}
+
+    final data = await query.order('date', ascending: false);
+    
+    debugPrint("📢 Raw announcement data: $data");
+    debugPrint("📢 Number of announcements fetched: ${(data as List).length}");
+    
+    final announcements = (data as List)
+        .map((e) => AnnouncementModel.fromMap(e as Map<String, dynamic>))
+        .toList();
+    
+    debugPrint("✅ Parsed announcements: ${announcements.length}");
+    
+    return announcements;
+  } catch (e) {
+    debugPrint("❌ Error fetching announcements: $e");
+    return [];
   }
+}
+
+Future<List<FeedItem>> _fetchFeed() async {
+  try {
+    List<FeedItem> feedItems = [];
+
+    // Fetch posts
+    final posts = await _fetchPosts();
+    debugPrint("📝 Posts fetched: ${posts.length}");
+    feedItems.addAll(posts.map((p) => FeedItem.fromPost(p)));
+
+    // Fetch announcements
+    final announcements = await _fetchAnnouncements();
+    debugPrint("📢 Announcements fetched: ${announcements.length}");
+    feedItems.addAll(announcements.map((a) => FeedItem.fromAnnouncement(a)));
+
+    // Sort by date (newest first)
+    feedItems.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    
+    debugPrint("🎯 Total feed items: ${feedItems.length}");
+    debugPrint("   - Posts: ${feedItems.where((f) => !f.isAnnouncement).length}");
+    debugPrint("   - Announcements: ${feedItems.where((f) => f.isAnnouncement).length}");
+
+    return feedItems;
+  } catch (e) {
+    debugPrint("❌ Error loading feed: $e");
+    return [];
+  }
+}
+Future<void> _loadLikesAndRepostsForPosts(List<FeedItem> items) async {
+  try {
+    final postProvider = Provider.of<PostProvider>(context, listen: false);
+    final repostProvider = Provider.of<RepostProvider>(context, listen: false);
+    
+    final postIds = items
+        .where((item) => !item.isAnnouncement)
+        .map((item) => item.post!.postId)
+        .toList();
+    
+    for (final id in postIds) {
+      postProvider.loadPostLikes(id);
+    }
+    
+    if (postIds.isNotEmpty) {
+      await repostProvider.loadRepostsForPosts(postIds);
+    }
+  } catch (e) {
+    debugPrint('Error loading likes and reposts: $e');
+  }
+}
+
 Future<bool> _isFollowing(int targetUserId) async {
   final res = await supabase
       .from('friendships')
@@ -135,8 +210,214 @@ Future<void> _toggleFollow(int targetUserId, String userName) async {
 
   setState(() {});
 }
+Widget _announcementCard(AnnouncementModel announcement) {
+  return FutureBuilder<Map<String, dynamic>?>(
+    future: UserController.fetchUserData(announcement.authorId),
+    builder: (context, snapshot) {
+      // ✅ FIX 1: Proper loading state with fixed height to prevent layout shifts
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return Container(
+          height: 150,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.orange.shade300, width: 2),
+          ),
+          child: const Center(child: CircularProgressIndicator()),
+        );
+      }
 
-  // ================================================================
+      // ✅ FIX 2: Handle error state separately
+      if (snapshot.hasError) {
+        debugPrint("❌ Error loading user data for announcement: ${snapshot.error}");
+        return Container(
+          height: 100,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.orange.shade300, width: 2),
+          ),
+          child: const Center(
+            child: Text(
+              "Error loading announcement author",
+              style: TextStyle(color: Colors.red, fontSize: 12),
+            ),
+          ),
+        );
+      }
+
+      // ✅ FIX 3: Handle null/no data case
+      if (!snapshot.hasData || snapshot.data == null) {
+        debugPrint("⚠️ No user data found for author_id: ${announcement.authorId}");
+        return Container(
+          height: 100,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.orange.shade300, width: 2),
+          ),
+          child: const Center(
+            child: Text(
+              "User data not found",
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ),
+        );
+      }
+
+      final user = snapshot.data!;
+      final userName = user["name"] ?? "Admin";
+      final avatar = user["profile_image"];
+
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.orange.shade300, width: 2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.campaign, size: 16, color: Colors.orange),
+                  SizedBox(width: 4),
+                  Text(
+                    "ANNOUNCEMENT",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Author info
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+                  child: avatar == null ? const Icon(Icons.person) : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        userName,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        "${announcement.time} • ${timeAgo(announcement.date)}",
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Title
+            Text(
+              announcement.title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Description
+            Text(
+              announcement.description,
+              style: const TextStyle(fontSize: 14),
+            ),
+            
+            const SizedBox(height: 12),
+
+            // Add to Calendar Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _addToCalendar(announcement),
+                icon: const Icon(Icons.calendar_today, size: 18),
+                label: const Text("Add to Calendar"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.shade400,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+// Add this method to handle calendar event creation:
+void _addToCalendar(AnnouncementModel announcement) {
+  final Event event = Event(
+    title: announcement.title,
+    description: announcement.description,
+    location: '',
+    startDate: announcement.fullDateTime,
+    endDate: announcement.fullDateTime.add(const Duration(hours: 1)),
+    iosParams: const IOSParams(
+      reminder: Duration(minutes: 30),
+    ),
+    androidParams: const AndroidParams(
+      emailInvites: [],
+    ),
+  );
+
+  Add2Calendar.addEvent2Cal(event).then((success) {
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Event added to calendar successfully! 📅'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to add event to calendar'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } 
+  });
+}
+
+// Add this method to handle calendar event creation:
   // CATEGORY MAPPING (updated per your DB)
   // ================================================================
   int _categoryNameToId(String name) {
@@ -211,8 +492,7 @@ Widget build(BuildContext context) {
                       onTap: () {
                         setState(() {
                           _showForYou = false;
-                          _postsFuture = _fetchPosts();
-                          _loadLikesAndRepostsForPosts();
+                          _feedFuture = _fetchFeed();
                         });
                       },
                       child: Text(
@@ -229,8 +509,7 @@ Widget build(BuildContext context) {
                       onTap: () {
                         setState(() {
                           _showForYou = true;
-                          _postsFuture = _fetchPosts();
-                         _loadLikesAndRepostsForPosts();
+                          _feedFuture = _fetchFeed();
                         });
                       },
                       child: Text(
@@ -280,8 +559,7 @@ Widget build(BuildContext context) {
                       onTap: () {
                         setState(() {
                           _selectedCategory = "ALL";
-                          _postsFuture = _fetchPosts();
-                          _loadLikesAndRepostsForPosts();
+                          _feedFuture = _fetchFeed();
                         });
                       },
                     ),
@@ -292,8 +570,7 @@ Widget build(BuildContext context) {
                       onTap: () {
                         setState(() {
                           _selectedCategory = "Internships";
-                          _postsFuture = _fetchPosts();
-                          _loadLikesAndRepostsForPosts();
+                          _feedFuture = _fetchFeed();
                         });
                       },
                     ),
@@ -304,8 +581,7 @@ Widget build(BuildContext context) {
                       onTap: () {
                         setState(() {
                           _selectedCategory = "Competitions";
-                          _postsFuture = _fetchPosts();
-                          _loadLikesAndRepostsForPosts();
+                          _feedFuture = _fetchFeed();
                         });
                       },
                     ),
@@ -316,8 +592,7 @@ Widget build(BuildContext context) {
                       onTap: () {
                         setState(() {
                           _selectedCategory = "Courses";
-                          _postsFuture = _fetchPosts();
-                          _loadLikesAndRepostsForPosts();
+                          _feedFuture = _fetchFeed();
                         });
                       },
                     ),
@@ -328,8 +603,7 @@ Widget build(BuildContext context) {
                       onTap: () {
                         setState(() {
                           _selectedCategory = "News";
-                          _postsFuture = _fetchPosts();
-                          _loadLikesAndRepostsForPosts();
+                          _feedFuture = _fetchFeed();
                         });
                       },
                     ),
@@ -340,8 +614,7 @@ Widget build(BuildContext context) {
   onTap: () {
     setState(() {
       _selectedCategory = "Events";
-      _postsFuture = _fetchPosts();
-      _loadLikesAndRepostsForPosts();
+      _feedFuture = _fetchFeed();
     });
   },
 ),
@@ -353,12 +626,21 @@ CategoryChip(
   onTap: () {
     setState(() {
       _selectedCategory = "Jobs";
-      _postsFuture = _fetchPosts();
-      _loadLikesAndRepostsForPosts();
+      _feedFuture = _fetchFeed();
     });
   },
 ),
-
+CategoryChip(
+  text: "Announcements",
+  icon: Icons.campaign,
+  selectedCategory: _selectedCategory,
+  onTap: () {
+    setState(() {
+      _selectedCategory = "Announcements";
+      _feedFuture = _fetchFeed();
+    });
+  },
+)
                   ],
                 ),
               ),
@@ -397,39 +679,36 @@ return Consumer<StoryProvider>(
               Divider(color: Colors.grey.shade300),
 
               // ================= POSTS =================
-              FutureBuilder<List<PostModel>>(
-                future: _postsFuture,
-                builder: (context, postSnapshot) {
-                  if (postSnapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+FutureBuilder<List<FeedItem>>(
+  future: _feedFuture,
+  builder: (context, snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-                  if (!postSnapshot.hasData ||
-    postSnapshot.data!.isEmpty) {
-  return const Padding(
-    padding: EdgeInsets.only(top: 20),
-    child: Center(child: Text("No posts available")),
-  );
-}
+    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 20),
+        child: Center(child: Text("No content available")),
+      );
+    }
 
-// 👇👇👇 السطر المهم جدًا
-WidgetsBinding.instance.addPostFrameCallback((_) {
-  _loadLikesAndRepostsForPosts();
-});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadLikesAndRepostsForPosts(snapshot.data!);
+    });
 
-
-                  return Column(
-                    children: postSnapshot.data!
-                        .map((p) => Padding(
-                              padding:
-                                  const EdgeInsets.only(bottom: 10),
-                              child: _feedCard(p),
-                            ))
-                        .toList(),
-                  );
-                },
-              ),
+    return Column(
+      children: snapshot.data!.map((item) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: item.isAnnouncement
+              ? _announcementCard(item.announcement!)
+              : _feedCard(item.post!),
+        );
+      }).toList(),
+    );
+  },
+)
             ],
           ),
         ),
@@ -570,13 +849,18 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
         // Discover mode
         _cachedFriendIds = []; // Clear cached friend IDs
         
-        if (_selectedCategory != "ALL") {
-          final categoryId = _categoryNameToId(_selectedCategory);
-          final data = await supabase
-              .from('posts')
-              .select('*')
-              .eq('category_id', categoryId)
-              .order('created_at', ascending: false);
+       if (_selectedCategory != "ALL") {
+  // ✅ Return empty list if "Announcements" is selected (show only announcements, no posts)
+  if (_selectedCategory == "Announcements") {
+    return [];
+  }
+  
+  final categoryId = _categoryNameToId(_selectedCategory);
+  final data = await supabase
+      .from('posts')
+      .select('*')
+      .eq('category_id', categoryId)
+      .order('created_at', ascending: false);
 
           final listData = data as List<dynamic>;
           return listData.map<PostModel>((p) => PostModel.fromMap(p as Map<String, dynamic>)).toList();
