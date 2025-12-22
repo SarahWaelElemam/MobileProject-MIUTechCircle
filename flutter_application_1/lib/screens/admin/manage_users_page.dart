@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ManageUsersPage extends StatefulWidget {
   const ManageUsersPage({Key? key}) : super(key: key);
@@ -8,179 +9,425 @@ class ManageUsersPage extends StatefulWidget {
 }
 
 class _ManageUsersPageState extends State<ManageUsersPage> {
-  final _searchController = TextEditingController();
-  String _selectedFilter = 'All Users';
-  
-  final List<String> _filters = ['All Users', 'Active', 'Inactive', 'Reported', 'Admins'];
-  
-  final List<Map<String, dynamic>> _users = [
-    {
-      'name': 'John Doe',
-      'email': 'john.doe@university.edu',
-      'role': 'Student',
-      'status': 'Active',
-      'joinDate': 'Jan 15, 2024',
-      'posts': 45,
-    },
-    {
-      'name': 'Sarah Smith',
-      'email': 'sarah.smith@university.edu',
-      'role': 'Student',
-      'status': 'Active',
-      'joinDate': 'Feb 10, 2024',
-      'posts': 32,
-    },
-    {
-      'name': 'Mike Johnson',
-      'email': 'mike.j@university.edu',
-      'role': 'Student',
-      'status': 'Inactive',
-      'joinDate': 'Dec 5, 2023',
-      'posts': 12,
-    },
-    {
-      'name': 'Emily Davis',
-      'email': 'emily.d@university.edu',
-      'role': 'Admin',
-      'status': 'Active',
-      'joinDate': 'Nov 1, 2023',
-      'posts': 89,
-    },
-  ];
+  List<Map<String, dynamic>> _users = [];
+  bool _isLoading = true;
+  String _searchQuery = '';
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = await Supabase.instance.client
+          .from('users')
+          .select()
+          .order('created_at', ascending: false);
+
+      setState(() {
+        _users = List<Map<String, dynamic>>.from(data);
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading users: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredUsers {
+    if (_searchQuery.isEmpty) return _users;
+    return _users.where((user) {
+      final name = user['name']?.toString().toLowerCase() ?? '';
+      final email = user['email']?.toString().toLowerCase() ?? '';
+      final query = _searchQuery.toLowerCase();
+      return name.contains(query) || email.contains(query);
+    }).toList();
+  }
+
+  // ============================================================
+  // CREATE USER
+  // ============================================================
+  Future<void> _createUser() async {
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final departmentController = TextEditingController();
+    final bioController = TextEditingController();
+    String selectedRole = 'Student';
+    int selectedYear = 1;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Create New User'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Full Name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: departmentController,
+                  decoration: const InputDecoration(
+                    labelText: 'Department',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedRole,
+                  decoration: const InputDecoration(
+                    labelText: 'Role',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'Student', child: Text('Student')),
+                    DropdownMenuItem(value: 'Instructor', child: Text('Instructor')),
+                    DropdownMenuItem(value: 'TA', child: Text('TA')),
+                    DropdownMenuItem(value: 'Admin', child: Text('Admin')),
+                  ],
+                  onChanged: (v) => setDialogState(() => selectedRole = v!),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  value: selectedYear,
+                  decoration: const InputDecoration(
+                    labelText: 'Academic Year',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text('Year 1')),
+                    DropdownMenuItem(value: 2, child: Text('Year 2')),
+                    DropdownMenuItem(value: 3, child: Text('Year 3')),
+                    DropdownMenuItem(value: 4, child: Text('Year 4')),
+                  ],
+                  onChanged: (v) => setDialogState(() => selectedYear = v!),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: bioController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Bio',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (nameController.text.isEmpty || emailController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Name and Email are required')),
+                  );
+                  return;
+                }
+
+                try {
+                  await Supabase.instance.client.from('users').insert({
+                    'name': nameController.text,
+                    'email': emailController.text,
+                    'department': departmentController.text,
+                    'role': selectedRole,
+                    'academic_year': selectedYear,
+                    'bio': bioController.text,
+                    'created_at': DateTime.now().toIso8601String(),
+                  });
+
+                  Navigator.pop(ctx, true);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Create', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ User created successfully'), backgroundColor: Colors.green),
+      );
+      _loadUsers();
+    }
+  }
+
+  // ============================================================
+  // UPDATE USER
+  // ============================================================
+  Future<void> _editUser(Map<String, dynamic> user) async {
+    final nameController = TextEditingController(text: user['name']);
+    final emailController = TextEditingController(text: user['email']);
+    final departmentController = TextEditingController(text: user['department']);
+    final bioController = TextEditingController(text: user['bio'] ?? '');
+    String selectedRole = user['role'] ?? 'Student';
+    int selectedYear = user['academic_year'] ?? 1;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Edit User'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Full Name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  enabled: false,
+                  decoration: const InputDecoration(
+                    labelText: 'Email (cannot be changed)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: departmentController,
+                  decoration: const InputDecoration(
+                    labelText: 'Department',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedRole,
+                  decoration: const InputDecoration(
+                    labelText: 'Role',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'Student', child: Text('Student')),
+                    DropdownMenuItem(value: 'Instructor', child: Text('Instructor')),
+                    DropdownMenuItem(value: 'TA', child: Text('TA')),
+                    DropdownMenuItem(value: 'Admin', child: Text('Admin')),
+                  ],
+                  onChanged: (v) => setDialogState(() => selectedRole = v!),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  value: selectedYear,
+                  decoration: const InputDecoration(
+                    labelText: 'Academic Year',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text('Year 1')),
+                    DropdownMenuItem(value: 2, child: Text('Year 2')),
+                    DropdownMenuItem(value: 3, child: Text('Year 3')),
+                    DropdownMenuItem(value: 4, child: Text('Year 4')),
+                  ],
+                  onChanged: (v) => setDialogState(() => selectedYear = v!),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: bioController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Bio',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await Supabase.instance.client.from('users').update({
+                    'name': nameController.text,
+                    'department': departmentController.text,
+                    'role': selectedRole,
+                    'academic_year': selectedYear,
+                    'bio': bioController.text,
+                  }).eq('user_id', user['user_id']);
+
+                  Navigator.pop(ctx, true);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+              child: const Text('Update', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ User updated successfully'), backgroundColor: Colors.green),
+      );
+      _loadUsers();
+    }
+  }
+
+  // ============================================================
+  // DELETE USER
+  // ============================================================
+  Future<void> _deleteUser(int userId, String email) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete User'),
+        content: Text('Are you sure you want to delete $email?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await Supabase.instance.client
+            .from('users')
+            .delete()
+            .eq('user_id', userId);
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ User deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadUsers();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
+        title: const Text('Manage Users'),
         backgroundColor: Colors.red,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Manage Users',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.add, color: Colors.white),
-            onPressed: () => _showAddUserDialog(),
+            icon: const Icon(Icons.add),
+            onPressed: _createUser,
+            tooltip: 'Add New User',
           ),
         ],
       ),
       body: Column(
         children: [
+          // Search Bar
           Container(
-            color: Colors.red,
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              children: [
-                // Search Bar
-                TextField(
-                  controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search users...',
-                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
-                    prefixIcon: const Icon(Icons.search, color: Colors.white),
-                    filled: true,
-                    fillColor: Colors.white.withOpacity(0.2),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                
-                // Filter Chips
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: _filters.map((filter) {
-                      bool isSelected = _selectedFilter == filter;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilterChip(
-                          label: Text(filter),
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            setState(() => _selectedFilter = filter);
-                          },
-                          backgroundColor: Colors.white.withOpacity(0.2),
-                          selectedColor: Colors.white,
-                          labelStyle: TextStyle(
-                            color: isSelected ? Colors.red : Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          // User Stats
-          Container(
-            margin: const EdgeInsets.all(16),
+            color: Colors.white,
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey[200]!),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildStatItem('Total', '12,453', Colors.blue),
-                _buildStatItem('Active', '11,892', Colors.green),
-                _buildStatItem('Inactive', '561', Colors.orange),
-              ],
+            child: TextField(
+              onChanged: (value) => setState(() => _searchQuery = value),
+              decoration: InputDecoration(
+                hintText: 'Search users...',
+                prefixIcon: const Icon(Icons.search, color: Colors.red),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
+                ),
+                filled: true,
+                fillColor: Colors.grey[50],
+              ),
             ),
           ),
-          
-          // User List
+
+          // Users List
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _users.length,
-              itemBuilder: (context, index) {
-                return _buildUserCard(_users[index]);
-              },
-            ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _filteredUsers.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.people_outline,
+                                size: 80, color: Colors.grey[400]),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No users found',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadUsers,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _filteredUsers.length,
+                          itemBuilder: (context, index) {
+                            final user = _filteredUsers[index];
+                            return _buildUserCard(user);
+                          },
+                        ),
+                      ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildStatItem(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-        ),
-      ],
     );
   }
 
@@ -188,213 +435,106 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: ExpansionTile(
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(16),
         leading: CircleAvatar(
-          backgroundColor: Colors.red,
-          child: Text(
-            user['name'][0],
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
+          radius: 28,
+          backgroundColor: _getRoleColor(user['role']).withOpacity(0.2),
+          backgroundImage: user['profile_image'] != null
+              ? NetworkImage(user['profile_image'])
+              : null,
+          child: user['profile_image'] == null
+              ? Text(
+                  (user['name'] ?? 'U')[0].toUpperCase(),
+                  style: TextStyle(
+                    color: _getRoleColor(user['role']),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                  ),
+                )
+              : null,
         ),
-        title: Row(
+        title: Text(
+          user['name'] ?? 'Unknown',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Text(
-                user['name'],
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: user['status'] == 'Active' ? Colors.green : Colors.grey,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                user['status'],
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            user['email'],
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-          ),
-        ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 4),
+            Text(user['email'] ?? ''),
+            const SizedBox(height: 4),
+            Row(
               children: [
-                _buildDetailRow('Role', user['role']),
-                _buildDetailRow('Join Date', user['joinDate']),
-                _buildDetailRow('Total Posts', '${user['posts']}'),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _showEditUserDialog(user),
-                        icon: const Icon(Icons.edit, size: 18),
-                        label: const Text('Edit'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.blue,
-                          side: const BorderSide(color: Colors.blue),
-                        ),
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _getRoleColor(user['role']).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    user['role'] ?? 'Student',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _getRoleColor(user['role']),
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _showSuspendDialog(user),
-                        icon: const Icon(Icons.block, size: 18),
-                        label: const Text('Suspend'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.orange,
-                          side: const BorderSide(color: Colors.orange),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _showDeleteDialog(user),
-                        icon: const Icon(Icons.delete, size: 18),
-                        label: const Text('Delete'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Year ${user['academic_year'] ?? 1}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit, color: Colors.blue),
+              onPressed: () => _editUser(user),
+              tooltip: 'Edit',
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red),
+              onPressed: () => _deleteUser(
+                user['user_id'],
+                user['email'] ?? '',
+              ),
+              tooltip: 'Delete',
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-          ),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showAddUserDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Add New User'),
-        content: const Text('Add user functionality coming soon'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditUserDialog(Map<String, dynamic> user) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Edit User'),
-        content: Text('Edit ${user['name']}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Save', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSuspendDialog(Map<String, dynamic> user) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Suspend User'),
-        content: Text('Are you sure you want to suspend ${user['name']}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${user['name']} has been suspended')),
-              );
-            },
-            child: const Text('Suspend', style: TextStyle(color: Colors.orange)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDeleteDialog(Map<String, dynamic> user) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete User'),
-        content: Text('Are you sure you want to delete ${user['name']}? This action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${user['name']} has been deleted')),
-              );
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
+  Color _getRoleColor(String? role) {
+    switch (role) {
+      case 'Admin':
+        return Colors.red;
+      case 'Instructor':
+        return Colors.blue;
+      case 'TA':
+        return Colors.orange;
+      default:
+        return Colors.green;
+    }
   }
 }

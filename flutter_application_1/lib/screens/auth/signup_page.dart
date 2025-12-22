@@ -27,14 +27,150 @@ class _SignUpPageState extends State<SignUpPage> {
 
   bool _isLoading = false;
   bool _obscure = true;
-  File? _selectedImage;
-  String? _uploadedImageUrl;
+  File? _selectedProfileImage;
+  File? _selectedCoverImage;
+  String? _uploadedProfileImageUrl;
+  String? _uploadedCoverImageUrl;
 
   String _selectedRole = "Student";
   int _selectedAcademicYear = 1;
+  bool _showAcademicYear = true;
 
   bool isMIUEmail(String email) {
     return email.toLowerCase().trim().endsWith("@miuegypt.edu.eg");
+  }
+
+  // ============================================================
+  // SMART EMAIL DETECTION WITH STUDENT/ALUMNI AUTO-DETECTION
+  // ============================================================
+  String detectRoleFromEmail(String email) {
+    if (!isMIUEmail(email)) return "Student";
+
+    final emailPrefix = email.split('@')[0].toLowerCase();
+    
+    // Check if email contains digits (student/alumni pattern)
+    final hasNumbers = RegExp(r'\d').hasMatch(emailPrefix);
+    
+    if (hasNumbers) {
+      // Extract registration year from email
+      // Example: mostafa2201035 -> "22" means joined in 2022
+      final yearMatch = RegExp(r'(\d{2})').firstMatch(emailPrefix);
+      
+      if (yearMatch != null) {
+        final registrationYear = int.tryParse(yearMatch.group(1)!);
+        
+        if (registrationYear != null) {
+          // Convert 2-digit year to full year
+          // 22 -> 2022, 21 -> 2021, etc.
+          final fullYear = registrationYear >= 0 && registrationYear <= 99
+              ? (registrationYear < 50 ? 2000 + registrationYear : 1900 + registrationYear)
+              : registrationYear;
+          
+          final currentYear = DateTime.now().year;
+          final yearsSinceJoining = currentYear - fullYear;
+          
+          print("📧 Email: $email");
+          print("📅 Registration Year: $fullYear");
+          print("📅 Current Year: $currentYear");
+          print("⏱️ Years Since Joining: $yearsSinceJoining");
+          
+          // If joined 4+ years ago, they're Alumni
+          // If joined less than 4 years ago, they're Student
+          if (yearsSinceJoining >= 4) {
+            print("🎓 Status: ALUMNI");
+            return "Alumni";
+          } else {
+            print("📚 Status: STUDENT");
+            return "Student";
+          }
+        }
+      }
+      
+      // If we can't parse the year, default to Student
+      return "Student";
+    } else {
+      // Instructor/TA email (only names, no numbers)
+      return "Instructor";
+    }
+  }
+
+  // ============================================================
+  // CALCULATE ACADEMIC YEAR FROM EMAIL
+  // ============================================================
+  int calculateAcademicYear(String email) {
+    if (!isMIUEmail(email)) return 1;
+
+    final emailPrefix = email.split('@')[0].toLowerCase();
+    final yearMatch = RegExp(r'(\d{2})').firstMatch(emailPrefix);
+    
+    if (yearMatch != null) {
+      final registrationYear = int.tryParse(yearMatch.group(1)!);
+      
+      if (registrationYear != null) {
+        final fullYear = registrationYear >= 0 && registrationYear <= 99
+            ? (registrationYear < 50 ? 2000 + registrationYear : 1900 + registrationYear)
+            : registrationYear;
+        
+        final currentYear = DateTime.now().year;
+        final yearsSinceJoining = currentYear - fullYear;
+        
+        // Calculate which year they're in (1-4)
+        if (yearsSinceJoining >= 4) {
+          return 4; // Alumni (graduated, show as Year 4)
+        } else if (yearsSinceJoining == 3) {
+          return 4; // Year 4 (final year)
+        } else if (yearsSinceJoining == 2) {
+          return 3; // Year 3
+        } else if (yearsSinceJoining == 1) {
+          return 2; // Year 2
+        } else {
+          return 1; // Year 1 (freshman)
+        }
+      }
+    }
+    
+    return 1; // Default to Year 1
+  }
+
+  void _onEmailChanged(String email) {
+    if (isMIUEmail(email)) {
+      final detectedRole = detectRoleFromEmail(email);
+      final calculatedYear = calculateAcademicYear(email);
+      
+      setState(() {
+        _selectedRole = detectedRole;
+        _selectedAcademicYear = calculatedYear;
+        _showAcademicYear = (detectedRole == "Student" || detectedRole == "Alumni");
+      });
+
+      // Show info message
+      if (detectedRole == "Alumni") {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("🎓 Welcome Alumni! Your account will be marked as graduated."),
+            backgroundColor: Colors.purple,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      } else if (detectedRole == "Student") {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("📚 Detected as Year $_selectedAcademicYear student"),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen to email changes
+    _email.addListener(() {
+      _onEmailChanged(_email.text.trim());
+    });
   }
 
   @override
@@ -48,7 +184,10 @@ class _SignUpPageState extends State<SignUpPage> {
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
+  // ============================================================
+  // PICK PROFILE IMAGE
+  // ============================================================
+  Future<void> _pickProfileImage() async {
     try {
       final picker = ImagePicker();
       
@@ -56,7 +195,7 @@ class _SignUpPageState extends State<SignUpPage> {
         context: context,
         builder: (context) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('Choose Photo Source'),
+          title: const Text('Choose Profile Photo'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -86,13 +225,13 @@ class _SignUpPageState extends State<SignUpPage> {
 
       if (pickedFile != null) {
         setState(() {
-          _selectedImage = File(pickedFile.path);
+          _selectedProfileImage = File(pickedFile.path);
         });
         
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("✅ Photo selected!"),
+            content: Text("✅ Profile photo selected!"),
             backgroundColor: Colors.green,
             duration: Duration(seconds: 2),
           ),
@@ -109,12 +248,79 @@ class _SignUpPageState extends State<SignUpPage> {
     }
   }
 
-  Future<String?> _uploadImage() async {
-    if (_selectedImage == null) return null;
+  // ============================================================
+  // PICK COVER IMAGE
+  // ============================================================
+  Future<void> _pickCoverImage() async {
+    try {
+      final picker = ImagePicker();
+      
+      final source = await showDialog<ImageSource>(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Choose Cover Photo'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: Colors.red),
+                title: const Text('Gallery'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: Colors.red),
+                title: const Text('Camera'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (source == null) return;
+
+      final pickedFile = await picker.pickImage(
+        source: source,
+        maxWidth: 1200,
+        maxHeight: 400,
+        imageQuality: 80,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _selectedCoverImage = File(pickedFile.path);
+        });
+        
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✅ Cover photo selected!"),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("❌ Error: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ============================================================
+  // UPLOAD PROFILE IMAGE
+  // ============================================================
+  Future<String?> _uploadProfileImage() async {
+    if (_selectedProfileImage == null) return null;
 
     try {
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${_email.text.split('@')[0]}.jpg';
-      final bytes = await _selectedImage!.readAsBytes();
+      final fileName = 'profile_${DateTime.now().millisecondsSinceEpoch}_${_email.text.split('@')[0]}.jpg';
+      final bytes = await _selectedProfileImage!.readAsBytes();
 
       await Supabase.instance.client.storage
           .from('profile-images')
@@ -126,32 +332,69 @@ class _SignUpPageState extends State<SignUpPage> {
 
       return imageUrl;
     } catch (e) {
-      print('❌ Image upload error: $e');
+      print('❌ Profile image upload error: $e');
       return null;
     }
   }
 
+  // ============================================================
+  // UPLOAD COVER IMAGE
+  // ============================================================
+  Future<String?> _uploadCoverImage() async {
+    if (_selectedCoverImage == null) return null;
+
+    try {
+      final fileName = 'cover_${DateTime.now().millisecondsSinceEpoch}_${_email.text.split('@')[0]}.jpg';
+      final bytes = await _selectedCoverImage!.readAsBytes();
+
+      await Supabase.instance.client.storage
+          .from('cover-images')
+          .uploadBinary('public/$fileName', bytes);
+
+      final imageUrl = Supabase.instance.client.storage
+          .from('cover-images')
+          .getPublicUrl('public/$fileName');
+
+      return imageUrl;
+    } catch (e) {
+      print('❌ Cover image upload error: $e');
+      return null;
+    }
+  }
+
+  // ============================================================
+  // HANDLE SIGNUP
+  // ============================================================
   Future<void> _handleSignUp() async {
     if (!_formKey.currentState!.validate()) return;
 
     final messenger = ScaffoldMessenger.of(context);
-    final nav = Navigator.of(context);
 
     setState(() => _isLoading = true);
 
     try {
-      // 1) Upload image
-      if (_selectedImage != null) {
+      // 1) Upload images
+      if (_selectedProfileImage != null || _selectedCoverImage != null) {
         messenger.showSnackBar(
           const SnackBar(
-            content: Text("Uploading photo..."),
+            content: Text("Uploading photos..."),
             duration: Duration(seconds: 2),
           ),
         );
-        _uploadedImageUrl = await _uploadImage();
+
+        final results = await Future.wait([
+          _uploadProfileImage(),
+          _uploadCoverImage(),
+        ]);
+
+        _uploadedProfileImageUrl = results[0];
+        _uploadedCoverImageUrl = results[1];
       }
 
-      // 2) Sign up
+      // 2) Determine approval status
+      final approvalStatus = _selectedRole == 'Admin' ? 'pending' : 'approved';
+
+      // 3) Sign up
       final res = await Supabase.instance.client.auth.signUp(
         email: _email.text.trim(),
         password: _password.text.trim(),
@@ -160,9 +403,11 @@ class _SignUpPageState extends State<SignUpPage> {
           'role': _selectedRole,
           'department': _department.text.trim(),
           'bio': _bio.text.trim(),
-          'academic_year': _selectedAcademicYear,
+          'academic_year': _showAcademicYear ? _selectedAcademicYear : null,
           'location': _location.text.trim().isEmpty ? null : _location.text.trim(),
-          'profile_image': _uploadedImageUrl,
+          'profile_image': _uploadedProfileImageUrl,
+          'cover_image': _uploadedCoverImageUrl,
+          'approval_status': approvalStatus,
         },
       );
 
@@ -172,12 +417,15 @@ class _SignUpPageState extends State<SignUpPage> {
 
       print("✅ Signup successful for: ${res.user!.email}");
 
-      // 3) Show success dialog
       if (!mounted) return;
-      await _showSuccessDialog();
+      
+      if (_selectedRole == 'Admin') {
+        await _showPendingApprovalDialog();
+      } else {
+        await _showSuccessDialog();
+      }
 
     } on AuthException catch (e) {
-      // Handle duplicate email error
       if (e.message.contains('already registered') || e.message.contains('duplicate')) {
         messenger.showSnackBar(
           const SnackBar(
@@ -206,6 +454,103 @@ class _SignUpPageState extends State<SignUpPage> {
     if (mounted) {
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _showPendingApprovalDialog() async {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.all(24),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.pending_actions,
+                color: Colors.orange,
+                size: 60,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              "Admin Request Pending",
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              "Your admin access request has been submitted.",
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "An administrator will review your request. You'll receive confirmation once approved.",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginPage()),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  "OK",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _showSuccessDialog() async {
@@ -332,8 +677,47 @@ class _SignUpPageState extends State<SignUpPage> {
               children: [
                 const SizedBox(height: 20),
 
+                // COVER IMAGE
                 GestureDetector(
-                  onTap: _pickImage,
+                  onTap: _pickCoverImage,
+                  child: Container(
+                    height: 120,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _selectedCoverImage != null ? Colors.green : Colors.grey[300]!,
+                        width: 2,
+                      ),
+                      image: _selectedCoverImage != null
+                          ? DecorationImage(
+                              image: FileImage(_selectedCoverImage!),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                    child: _selectedCoverImage == null
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.add_photo_alternate, size: 40, color: Colors.grey[400]),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Add Cover Photo (Optional)',
+                                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                              ),
+                            ],
+                          )
+                        : null,
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // PROFILE IMAGE
+                GestureDetector(
+                  onTap: _pickProfileImage,
                   child: Stack(
                     children: [
                       Container(
@@ -344,10 +728,10 @@ class _SignUpPageState extends State<SignUpPage> {
                         child: CircleAvatar(
                           radius: 60,
                           backgroundColor: const Color.fromARGB(40, 255, 0, 0),
-                          backgroundImage: _selectedImage != null
-                              ? FileImage(_selectedImage!)
+                          backgroundImage: _selectedProfileImage != null
+                              ? FileImage(_selectedProfileImage!)
                               : null,
-                          child: _selectedImage == null
+                          child: _selectedProfileImage == null
                               ? const Icon(Icons.person, size: 60, color: Colors.red)
                               : null,
                         ),
@@ -371,11 +755,11 @@ class _SignUpPageState extends State<SignUpPage> {
 
                 const SizedBox(height: 12),
                 Text(
-                  _selectedImage == null ? "Tap to add photo" : "Tap to change photo",
+                  _selectedProfileImage == null ? "Tap to add photo" : "Tap to change photo",
                   style: TextStyle(
-                    color: _selectedImage == null ? Colors.grey[600] : Colors.green,
+                    color: _selectedProfileImage == null ? Colors.grey[600] : Colors.green,
                     fontSize: 13,
-                    fontWeight: _selectedImage == null ? FontWeight.normal : FontWeight.bold,
+                    fontWeight: _selectedProfileImage == null ? FontWeight.normal : FontWeight.bold,
                   ),
                 ),
 
@@ -406,22 +790,33 @@ class _SignUpPageState extends State<SignUpPage> {
                 _input("Department", Icons.school, _department),
                 const SizedBox(height: 16),
 
-                DropdownButtonFormField<int>(
-                  value: _selectedAcademicYear,
-                  decoration: InputDecoration(
-                    labelText: "Academic Year",
-                    prefixIcon: const Icon(Icons.calendar_today, color: Colors.red),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                // ACADEMIC YEAR - SHOW FOR STUDENTS AND ALUMNI
+                if (_showAcademicYear) ...[
+                  DropdownButtonFormField<int>(
+                    value: _selectedAcademicYear,
+                    decoration: InputDecoration(
+                      labelText: _selectedRole == "Alumni" ? "Graduation Year" : "Academic Year",
+                      prefixIcon: const Icon(Icons.calendar_today, color: Colors.red),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      helperText: _selectedRole == "Alumni" 
+                          ? "Auto-detected: Graduated (4+ years)" 
+                          : "Auto-detected from registration year",
+                      helperStyle: TextStyle(
+                        fontSize: 11, 
+                        color: _selectedRole == "Alumni" ? Colors.purple : Colors.green[700],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 1, child: Text("Year 1")),
+                      DropdownMenuItem(value: 2, child: Text("Year 2")),
+                      DropdownMenuItem(value: 3, child: Text("Year 3")),
+                      DropdownMenuItem(value: 4, child: Text("Year 4 / Graduated")),
+                    ],
+                    onChanged: (v) => setState(() => _selectedAcademicYear = v!),
                   ),
-                  items: const [
-                    DropdownMenuItem(value: 1, child: Text("Year 1")),
-                    DropdownMenuItem(value: 2, child: Text("Year 2")),
-                    DropdownMenuItem(value: 3, child: Text("Year 3")),
-                    DropdownMenuItem(value: 4, child: Text("Year 4")),
-                  ],
-                  onChanged: (v) => setState(() => _selectedAcademicYear = v!),
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
+                ],
 
                 _input("Bio", Icons.info, _bio, maxLines: 2),
                 const SizedBox(height: 16),
@@ -429,20 +824,36 @@ class _SignUpPageState extends State<SignUpPage> {
                 _input("Location (optional)", Icons.location_on, _location, validator: (_) => null),
                 const SizedBox(height: 16),
 
+                // ROLE DROPDOWN - AUTO-DETECTED BUT EDITABLE
                 DropdownButtonFormField<String>(
                   value: _selectedRole,
                   decoration: InputDecoration(
                     labelText: "Role",
-                    prefixIcon: const Icon(Icons.badge, color: Colors.red),
+                    prefixIcon: Icon(
+                      _selectedRole == "Alumni" ? Icons.school : Icons.badge, 
+                      color: Colors.red,
+                    ),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    helperText: "✓ Auto-detected from email",
+                    helperStyle: TextStyle(
+                      color: _selectedRole == "Alumni" ? Colors.purple : Colors.green[700], 
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   items: const [
                     DropdownMenuItem(value: "Student", child: Text("Student")),
                     DropdownMenuItem(value: "Instructor", child: Text("Instructor")),
                     DropdownMenuItem(value: "TA", child: Text("TA")),
+                    DropdownMenuItem(value: "Alumni", child: Text("Alumni 🎓")),
                     DropdownMenuItem(value: "Admin", child: Text("Admin")),
                   ],
-                  onChanged: (v) => setState(() => _selectedRole = v ?? "Student"),
+                  onChanged: (v) {
+                    setState(() {
+                      _selectedRole = v ?? "Student";
+                      _showAcademicYear = (v == "Student" || v == "Alumni");
+                    });
+                  },
                 ),
                 const SizedBox(height: 16),
 
@@ -506,16 +917,15 @@ class _SignUpPageState extends State<SignUpPage> {
     TextEditingController controller, {
     String? Function(String?)? validator,
     int maxLines = 1,
-  }) {
-    return TextFormField(
-      controller: controller,
-      maxLines: maxLines,
-      validator: validator ?? (v) => v == null || v.isEmpty ? "Required" : null,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: Colors.red),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
+  }) {return TextFormField(
+controller: controller,
+maxLines: maxLines,
+validator: validator ?? (v) => v == null || v.isEmpty ? "Required" : null,
+decoration: InputDecoration(
+labelText: label,
+prefixIcon: Icon(icon, color: Colors.red),
+border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+),
+);
+}
 }

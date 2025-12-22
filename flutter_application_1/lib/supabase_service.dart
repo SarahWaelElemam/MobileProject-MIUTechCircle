@@ -1,7 +1,3 @@
-// ============================================================
-// FILE: supabase_service.dart
-// ============================================================
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
@@ -15,15 +11,14 @@ class SupabaseService {
     required String email,
     required String role,
     String? profileImage,
+    String? coverImage,
     required String department,
     required String bio,
     required int academicYear,
     String? location,
   }) async {
-    // Get current auth user ID
     final authUserId = client.auth.currentUser?.id;
 
-    // Check if user already exists
     final existing = await client
         .from('users')
         .select('email')
@@ -35,12 +30,12 @@ class SupabaseService {
       return;
     }
 
-    // Insert new user profile
     await client.from('users').insert({
       'name': name,
       'email': email,
       'role': role,
       'profile_image': profileImage,
+      'cover_image': coverImage,
       'department': department,
       'bio': bio,
       'academic_year': academicYear,
@@ -76,10 +71,68 @@ class SupabaseService {
     final user = client.auth.currentUser;
     if (user == null) return false;
 
-    // Refresh session to get latest email_confirmed_at
     await client.auth.refreshSession();
     final refreshedUser = client.auth.currentUser;
 
     return refreshedUser?.emailConfirmedAt != null;
+  }
+
+  // ============================================================
+  // GET TOTAL USERS COUNT (SIMPLIFIED - NO ERRORS)
+  // ============================================================
+  Future<int> getTotalUsersCount() async {
+    try {
+      final data = await client.from('users').select('user_id');
+      return (data as List).length;
+    } catch (e) {
+      print("❌ Error getting users count: $e");
+      return 0;
+    }
+  }
+
+  // ============================================================
+  // GET ALL USERS
+  // ============================================================
+  Future<List<Map<String, dynamic>>> getAllUsers() async {
+    try {
+      final data = await client
+          .from('users')
+          .select()
+          .order('created_at', ascending: false);
+      
+      return List<Map<String, dynamic>>.from(data);
+    } catch (e) {
+      print("❌ Error fetching users: $e");
+      return [];
+    }
+  }
+
+  // ============================================================
+  // DELETE USER
+  // ============================================================
+  Future<void> deleteUser(int userId) async {
+    try {
+      await client.from('users').delete().eq('user_id', userId);
+      print("✅ User deleted successfully");
+    } catch (e) {
+      print("❌ Error deleting user: $e");
+      throw e;
+    }
+  }
+
+  // ============================================================
+  // UPDATE USER PROFILE
+  // ============================================================
+  Future<void> updateUserProfile({
+    required String email,
+    required Map<String, dynamic> updates,
+  }) async {
+    try {
+      await client.from('users').update(updates).eq('email', email);
+      print("✅ User profile updated for $email");
+    } catch (e) {
+      print("❌ Error updating user: $e");
+      throw e;
+    }
   }
 }
