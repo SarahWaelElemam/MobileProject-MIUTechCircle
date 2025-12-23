@@ -25,8 +25,8 @@ class SearchRepository {
         data['media_url'].toString().trim().isNotEmpty) {
       final url = data['media_url'].toString();
       if (!url.startsWith('http')) {
-        // Assume it's a path in the 'post-media' bucket
-        data['media_url'] = client.storage.from('post-media').getPublicUrl(url);
+        // Assume it's a path in the 'Posts' bucket
+        data['media_url'] = client.storage.from('Posts').getPublicUrl(url);
       }
     }
     return PostModel.fromMap(data);
@@ -38,7 +38,7 @@ class SearchRepository {
       final url = data['profile_image'].toString();
       if (!url.startsWith('http')) {
         data['profile_image'] = client.storage
-            .from('profile-image')
+            .from('profile-images')
             .getPublicUrl(url);
       }
     }

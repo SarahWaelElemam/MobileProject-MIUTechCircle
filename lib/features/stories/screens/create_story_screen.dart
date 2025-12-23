@@ -28,10 +28,10 @@ class _CreateStoryScreenState extends ConsumerState<CreateStoryScreen> {
   final List<TextOverlayItem> _textItems = [];
 
   // Drawing State
-  List<DrawingPoint?> _drawingPoints = [];
+  final List<DrawingPoint?> _drawingPoints = [];
   bool _isDrawing = false;
   Color _drawingColor = Colors.white;
-  double _drawingWidth = 5.0;
+  final double _drawingWidth = 5.0;
 
   // Sticker State
   final List<StickerItem> _stickers = [];
@@ -302,30 +302,6 @@ class _CreateStoryScreenState extends ConsumerState<CreateStoryScreen> {
         setState(() => _isLoading = false);
       }
     }
-  }
-
-  Future<bool> _confirmCancel() async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Cancel Upload?'),
-            content: const Text(
-              'Are you sure you want to leave? The upload will be cancelled.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('No'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
-                child: const Text('Yes, Leave'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
   }
 
   void _showTextEditor({TextOverlayItem? item}) {
@@ -679,7 +655,7 @@ class _CreateStoryScreenState extends ConsumerState<CreateStoryScreen> {
                           ),
                         ),
                       );
-                    }).toList(),
+                    }),
 
                     // Text Layers
                     ..._textItems.map((item) {
@@ -748,7 +724,7 @@ class _CreateStoryScreenState extends ConsumerState<CreateStoryScreen> {
                           ),
                         ),
                       );
-                    }).toList(),
+                    }),
                   ],
                 ),
               ),
@@ -814,7 +790,7 @@ class _CreateStoryScreenState extends ConsumerState<CreateStoryScreen> {
                   height: 60,
                   decoration: BoxDecoration(
                     color: _isOverTrash
-                        ? Colors.red.withOpacity(0.8)
+                        ? Colors.red.withValues(alpha: 0.8)
                         : Colors.black54,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),

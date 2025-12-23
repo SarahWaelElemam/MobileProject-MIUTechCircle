@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ViewersSheet extends StatefulWidget {
-  final List<String> viewerIds;
+  final List<int> viewerIds;
 
   const ViewersSheet({super.key, required this.viewerIds});
 

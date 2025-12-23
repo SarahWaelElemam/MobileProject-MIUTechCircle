@@ -30,7 +30,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     'Jobs',
     'Courses',
     'News',
-    'Projects',
   ];
   final List<String> locationOptions = [
     'All',
@@ -43,7 +42,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   final Map<String, IconData> exploreCategories = {
     'Internships': Icons.work_outline,
-    'Projects': Icons.code,
     'Events': Icons.calendar_today,
     'Competitions': Icons.emoji_events_outlined,
     'Jobs': Icons.business_center_outlined,
@@ -328,60 +326,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               );
             },
           ),
-        ),
-        const SizedBox(height: 32),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Trending Projects',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  selectedType = 'Projects';
-                });
-                _updateFilters();
-              },
-              child: const Text('See All'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        FutureBuilder(
-          future: ref.read(searchRepositoryProvider).getTrendingPosts(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
-            }
-            if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return const Text('No trending projects yet.');
-            }
-            return SizedBox(
-              height: 180,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: snapshot.data!.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 16),
-                itemBuilder: (context, index) {
-                  final post = snapshot.data![index];
-                  return SizedBox(
-                    width: 280,
-                    child: ResultCard(
-                      result: SearchResultModel(
-                        type: SearchResultType.post,
-                        data: post,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            );
-          },
         ),
         const SizedBox(height: 32),
         Row(

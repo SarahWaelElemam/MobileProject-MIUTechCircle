@@ -310,10 +310,10 @@ class _StoryPlayerState extends ConsumerState<StoryPlayer>
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Colors.black.withOpacity(0.6),
+                      Colors.black.withValues(alpha: 0.6),
                       Colors.transparent,
                       Colors.transparent,
-                      Colors.black.withOpacity(0.6),
+                      Colors.black.withValues(alpha: 0.6),
                     ],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
@@ -369,7 +369,7 @@ class _StoryPlayerState extends ConsumerState<StoryPlayer>
                   child: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
+                      color: Colors.black.withValues(alpha: 0.6),
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white24),
                     ),

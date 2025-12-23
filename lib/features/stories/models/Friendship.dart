@@ -1,7 +1,7 @@
 class Friendship {
   final String friendshipId;
-  final String userId;
-  final String friendId;
+  final int userId;
+  final int friendId;
   final String status;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -18,8 +18,12 @@ class Friendship {
   factory Friendship.fromJson(Map<String, dynamic> json) {
     return Friendship(
       friendshipId: json['friendship_id'].toString(),
-      userId: json['user_id'].toString(),
-      friendId: json['friend_id'].toString(),
+      userId: json['user_id'] is int
+          ? json['user_id']
+          : int.tryParse(json['user_id'].toString()) ?? 0,
+      friendId: json['friend_id'] is int
+          ? json['friend_id']
+          : int.tryParse(json['friend_id'].toString()) ?? 0,
       status: json['status'],
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),

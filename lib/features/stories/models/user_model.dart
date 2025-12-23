@@ -1,5 +1,5 @@
 class UserProfile {
-  final String id;
+  final int id;
   final String username;
   final String avatarUrl;
 
@@ -10,7 +10,9 @@ class UserProfile {
   });
 
   factory UserProfile.fromMap(Map<String, dynamic> m) => UserProfile(
-    id: m['user_id'] ?? '',
+    id: m['user_id'] is int
+        ? m['user_id']
+        : int.tryParse(m['user_id'].toString()) ?? 0,
     username: m['name'] ?? 'Unknown',
     avatarUrl: m['profile_image'] ?? '',
   );

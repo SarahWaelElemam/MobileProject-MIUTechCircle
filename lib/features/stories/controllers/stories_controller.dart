@@ -28,10 +28,13 @@ class StoriesController extends StateNotifier<StoriesState> {
   final _supabase = Supabase.instance.client;
 
   // 🟢 HARDCODED ID (Temporary for testing)
-  String get currentUserId => 'e7f0d2d0-7149-4db8-bf22-5a27ed5d1d4f';
+  int get currentUserId => 20;
 
   Future<void> loadStories() async {
-    final nowIso = DateTime.now().toIso8601String();
+    final now = DateTime.now();
+    final twentyFourHoursAgoIso = now
+        .subtract(const Duration(hours: 24))
+        .toIso8601String();
 
     // 1. Fetch Friendships (Accepted only)
     List<Friendship> friendships = [];
@@ -42,18 +45,16 @@ class StoriesController extends StateNotifier<StoriesState> {
           .or('user_id.eq.$currentUserId,friend_id.eq.$currentUserId')
           .eq('status', 'accepted');
 
-      if (friendshipsData != null) {
-        friendships = (friendshipsData as List<dynamic>)
-            .map((json) => Friendship.fromJson(json as Map<String, dynamic>))
-            .toList();
-      }
+      friendships = (friendshipsData as List<dynamic>)
+          .map((json) => Friendship.fromJson(json as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       debugPrint("Error fetching friendships: $e");
       // Fallback: Continue with empty friends list (only show my stories)
     }
 
     // 2. Extract Friend IDs
-    final friendIds = <String>{};
+    final friendIds = <int>{};
     for (final f in friendships) {
       if (f.userId == currentUserId) {
         friendIds.add(f.friendId);
@@ -65,76 +66,97 @@ class StoriesController extends StateNotifier<StoriesState> {
     // Always include myself
     friendIds.add(currentUserId);
 
-    // 3. Fetch Stories (Only from friends + me)
-    final data = await _supabase
-        .from('stories')
-        .select('''
-          id, media_url, created_at, expires_at, user_id,
-          users:users!stories_user_id_fkey (user_id, name, profile_image),
-          story_views(viewer_id)
-        ''')
-        .filter('user_id', 'in', friendIds.toList()) // 🟢 FILTER APPLIED
-        .gt('expires_at', nowIso)
-        .order('created_at');
+    try {
+      // 3. Fetch Stories (Only from friends + me)
+      final data = await _supabase
+          .from('stories')
+          .select('''
+            id, story_image, created_at, user_id,
+            users (user_id, name, profile_image),
+            story_views(viewer_id)
+          ''')
+          .filter('user_id', 'in', friendIds.toList()) // 🟢 FILTER APPLIED
+          .gt('created_at', twentyFourHoursAgoIso)
+          .order('created_at');
 
-    final Map<String, UserStories> grouped = {};
+      final Map<int, UserStories> grouped = {};
 
-    // Grouping Logic
-    for (final item in data) {
-      final uid = item['user_id'] as String;
+      // Grouping Logic
+      for (final item in data) {
+        final uid = item['user_id'] is int
+            ? item['user_id']
+            : int.tryParse(item['user_id'].toString()) ?? 0;
 
-      // Create UserStories entry if not exists
-      if (!grouped.containsKey(uid)) {
-        grouped[uid] = UserStories(
-          user: UserProfile.fromMap(item['users']),
-          stories: [],
+        // Create UserStories entry if not exists
+        if (!grouped.containsKey(uid)) {
+          grouped[uid] = UserStories(
+            user: UserProfile.fromMap(item['users']),
+            stories: [],
+          );
+        }
+
+        // Add Story
+        grouped[uid]!.stories.add(
+          Story(
+            id: item['id'],
+            userId: uid,
+            mediaUrl: item['story_image'],
+            createdAt: DateTime.parse(item['created_at']),
+            expiresAt: DateTime.parse(
+              item['created_at'],
+            ).add(const Duration(hours: 24)),
+            seenBy: (item['story_views'] as List)
+                .map(
+                  (v) => v['viewer_id'] is int
+                      ? v['viewer_id']
+                      : int.tryParse(v['viewer_id'].toString()) ?? 0,
+                )
+                .cast<int>()
+                .toSet(),
+          ),
         );
       }
 
-      // Add Story
-      grouped[uid]!.stories.add(
-        Story(
-          id: item['id'],
-          userId: uid,
-          mediaUrl: item['media_url'],
-          createdAt: DateTime.parse(item['created_at']),
-          expiresAt: DateTime.parse(item['expires_at']),
-          seenBy: (item['story_views'] as List)
-              .map((v) => v['viewer_id'] as String)
-              .toSet(),
+      // SPLIT LOGIC: Done here once, so the UI is dumb and fast
+      final allStories = grouped.values.toList();
+
+      final myStory = allStories.firstWhere(
+        (s) => s.user.id == currentUserId,
+        orElse: () => UserStories(
+          // Return empty structure if no story exists
+          user: UserProfile(id: currentUserId, username: 'Me', avatarUrl: ''),
+          stories: [],
         ),
       );
+
+      final friends = allStories
+          .where((s) => s.user.id != currentUserId)
+          .toList();
+
+      // 🟢 SORT: Unseen first
+      friends.sort((a, b) {
+        final aUnseen = a.hasUnseen(currentUserId);
+        final bUnseen = b.hasUnseen(currentUserId);
+        if (aUnseen && !bUnseen) return -1;
+        if (!aUnseen && bUnseen) return 1;
+        return 0;
+      });
+
+      state = StoriesState(myStory: myStory, friendsStories: friends);
+    } catch (e) {
+      debugPrint("Error loading stories: $e");
+      // Even on error, ensure we have a "myStory" object so the UI can show the add button
+      state = StoriesState(
+        myStory: UserStories(
+          user: UserProfile(id: currentUserId, username: 'Me', avatarUrl: ''),
+          stories: [],
+        ),
+        friendsStories: [],
+      );
     }
-
-    // SPLIT LOGIC: Done here once, so the UI is dumb and fast
-    final allStories = grouped.values.toList();
-
-    final myStory = allStories.firstWhere(
-      (s) => s.user.id == currentUserId,
-      orElse: () => UserStories(
-        // Return empty structure if no story exists
-        user: UserProfile(id: currentUserId, username: 'Me', avatarUrl: ''),
-        stories: [],
-      ),
-    );
-
-    final friends = allStories
-        .where((s) => s.user.id != currentUserId)
-        .toList();
-
-    // 🟢 SORT: Unseen first
-    friends.sort((a, b) {
-      final aUnseen = a.hasUnseen(currentUserId);
-      final bUnseen = b.hasUnseen(currentUserId);
-      if (aUnseen && !bUnseen) return -1;
-      if (!aUnseen && bUnseen) return 1;
-      return 0;
-    });
-
-    state = StoriesState(myStory: myStory, friendsStories: friends);
   }
 
-  Future<void> markStoryAsSeen(String storyId) async {
+  Future<void> markStoryAsSeen(int storyId) async {
     debugPrint("markStoryAsSeen called for story: $storyId");
     debugPrint("Current User ID: $currentUserId");
 
@@ -227,16 +249,13 @@ class StoriesController extends StateNotifier<StoriesState> {
 
     await _supabase.from('stories').insert({
       'user_id': currentUserId,
-      'media_url': url,
-      'expires_at': DateTime.now()
-          .add(const Duration(hours: 24))
-          .toIso8601String(),
+      'story_image': url,
     });
 
     await loadStories();
   }
 
-  Future<void> deleteStory(String storyId) async {
+  Future<void> deleteStory(int storyId) async {
     final myStories = state.myStory;
     if (myStories == null) return;
 
@@ -258,6 +277,9 @@ class StoriesController extends StateNotifier<StoriesState> {
     // 4. Delete from Storage (Fire-and-forget with silent error handling)
     // We do this LAST so the UI feels instant.
     final path = story.mediaUrl.split('/story-media/').last;
-    _supabase.storage.from('story-media').remove([path]).catchError((_) => []);
+    _supabase.storage
+        .from('story-media')
+        .remove([path])
+        .catchError((_) => <FileObject>[]);
   }
 }

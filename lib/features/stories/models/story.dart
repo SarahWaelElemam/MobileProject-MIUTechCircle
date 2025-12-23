@@ -1,12 +1,12 @@
 enum MediaType { image, video }
 
 class Story {
-  final String id;
-  final String userId;
+  final int id;
+  final int userId;
   final String mediaUrl;
   final DateTime createdAt;
   final DateTime expiresAt;
-  final Set<String> seenBy;
+  final Set<int> seenBy;
 
   Story({
     required this.id,
@@ -34,7 +34,7 @@ class Story {
     return MediaType.image;
   }
 
-  Story copyWith({Set<String>? seenBy}) => Story(
+  Story copyWith({Set<int>? seenBy}) => Story(
     id: id,
     userId: userId,
     mediaUrl: mediaUrl,
