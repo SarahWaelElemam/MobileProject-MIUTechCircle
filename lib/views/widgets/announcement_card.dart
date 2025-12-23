@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:add_2_calendar/add_2_calendar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:project/models/announcement_model.dart';
+import 'package:project/services/google_calendar_service.dart';
 
 final supabase = Supabase.instance.client;
 
@@ -44,54 +45,91 @@ class _AnnouncementCardState extends State<AnnouncementCard> {
   }
 
   // 🔁 TOGGLE REMINDER
-  Future<void> _toggleReminder() async {
-    if (_loading) return;
+  // 🔁 TOGGLE REMINDER - FIXED VERSION
+Future<void> _toggleReminder() async {
+  if (_loading) return;
 
-    setState(() => _loading = true);
+  setState(() => _loading = true);
 
-    try {
-      if (_isAdded) {
-        // ❌ REMOVE
-        await supabase
-            .from('announcement_reminders')
-            .delete()
-            .eq('user_id', widget.currentUserId)
-            .eq('ann_id', widget.announcement.annId);
+  try {
+    if (_isAdded) {
+      // ❌ REMOVE
+      
+      // 1️⃣ Get the stored Google Calendar event ID
+      final reminderData = await supabase
+          .from('announcement_reminders')
+          .select('google_event_id')
+          .eq('user_id', widget.currentUserId)
+          .eq('ann_id', widget.announcement.annId)
+          .maybeSingle();
 
-        if (mounted) setState(() => _isAdded = false);
-      } else {
-        // ➕ ADD
-        await supabase.from('announcement_reminders').insert({
-          'user_id': widget.currentUserId,
-          'ann_id': widget.announcement.annId,
-        });
+      // 2️⃣ Delete from Google Calendar if event ID exists
+      if (reminderData != null && reminderData['google_event_id'] != null) {
+        try {
+          await GoogleCalendarService.deleteEvent(
+            reminderData['google_event_id'] as String,
+          );
+        } catch (e) {
+          debugPrint("Google Calendar deletion error: $e");
+        }
+      }
 
-        // 📅 add to calendar (optional – only on add)
-        final event = Event(
+      // 3️⃣ Delete from database
+      await supabase
+          .from('announcement_reminders')
+          .delete()
+          .eq('user_id', widget.currentUserId)
+          .eq('ann_id', widget.announcement.annId);
+
+      if (mounted) setState(() => _isAdded = false);
+      
+    } else {
+      // ➕ ADD
+      
+      // 1️⃣ Native calendar
+      final event = Event(
+        title: widget.announcement.title,
+        description: widget.announcement.description,
+        startDate: widget.announcement.eventDateTime,
+        endDate: widget.announcement.eventDateTime.add(const Duration(hours: 1)),
+      );
+      await Add2Calendar.addEvent2Cal(event);
+
+      // 2️⃣ Google Calendar - Store the event ID
+      String? googleEventId;
+      try {
+        googleEventId = await GoogleCalendarService.addEvent(
           title: widget.announcement.title,
           description: widget.announcement.description,
-          startDate: widget.announcement.eventDateTime,
-          endDate:
-              widget.announcement.eventDateTime.add(const Duration(hours: 1)),
+          startTime: widget.announcement.eventDateTime,
+          endTime: widget.announcement.eventDateTime.add(const Duration(hours: 1)),
         );
-        await Add2Calendar.addEvent2Cal(event);
+      } catch (e) {
+        debugPrint("Google Calendar error: $e");
+      }
 
-        if (mounted) setState(() => _isAdded = true);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Something went wrong"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      // 3️⃣ Save to database WITH Google event ID
+      await supabase.from('announcement_reminders').insert({
+        'user_id': widget.currentUserId,
+        'ann_id': widget.announcement.annId,
+        'google_event_id': googleEventId, // 🔑 Store this!
+      });
+
+      if (mounted) setState(() => _isAdded = true);
     }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Something went wrong"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _loading = false);
   }
-
+}
   @override
   Widget build(BuildContext context) {
     return Container(

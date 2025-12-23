@@ -21,7 +21,7 @@ Future<void> main() async {
   );
 
   // TEMP: Hard-coded current user
-  const int currentUserId = 15;
+  const int currentUserId = 6;
 
   runApp(
     MultiProvider(
