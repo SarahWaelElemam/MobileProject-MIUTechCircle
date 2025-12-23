@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:project/views/calender_screen.dart';
+import 'package:project/views/SavedPostsPage.dart'; // ✅ Add this import
 
 class UserDrawerContent extends StatefulWidget {
   final int userId;
@@ -113,21 +114,29 @@ class _UserDrawerContentState extends State<UserDrawerContent> {
                   ListTile(
                     leading: const Icon(Icons.bookmark),
                     title: const Text("Saved Posts"),
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.pop(context); // ✅ Close the drawer
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SavedPostsPage(currentUserId: widget.userId), // ✅ Navigate to saved posts
+                        ),
+                      );
+                    },
                   ),
                   ListTile(
-  leading: const Icon(Icons.group),
-  title: const Text("Calender"),
-  onTap: () {
-    Navigator.pop(context); // يقفل الـ Drawer
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CalendarScreen(userId: widget.userId),
-      ),
-    );
-  },
-),
+                    leading: const Icon(Icons.calendar_today),
+                    title: const Text("Calendar"),
+                    onTap: () {
+                      Navigator.pop(context); // Close the drawer
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CalendarScreen(userId: widget.userId),
+                        ),
+                      );
+                    },
+                  ),
 
                   ListTile(
                     leading: const Icon(Icons.settings),
