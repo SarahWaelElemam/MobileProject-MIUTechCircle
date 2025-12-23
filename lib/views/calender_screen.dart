@@ -443,7 +443,10 @@ List<Map<String, dynamic>> _getEventsForDate(DateTime date) {
           ],
         ),
       ),
-     bottomNavigationBar: BottomNavbar(),
+     bottomNavigationBar: BottomNavbar(
+     currentIndex: 2,
+     userId: widget.userId,
+    ),
 );
   }
 }

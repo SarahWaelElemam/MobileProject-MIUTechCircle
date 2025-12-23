@@ -556,7 +556,7 @@ FutureBuilder<List<FeedItem>>(
       ],
     ),
 
-    bottomNavigationBar: const BottomNavbar(),
+    bottomNavigationBar:  BottomNavbar(currentIndex: 0,userId: widget.currentUserId,),
   );
 }
 
