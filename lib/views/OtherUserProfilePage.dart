@@ -91,6 +91,7 @@ List<Map<String, dynamic>> allUserReposts = [];
     super.dispose();
   }
 
+
   Future<void> fetchCurrentUserData() async {
     try {
       if (mockCurrentUserId == "11111111-1111-1111-1111-111111111111") {
@@ -810,6 +811,7 @@ void _showPostMenu(BuildContext context, String postId) {
               conversationId: conversationId!,
               otherUserName: user!['username'] ?? 'Unknown',
               otherUserId: widget.userId,
+              currentUserId: '11111111-1111-1111-1111-111111111111',
             ),
           ),
         );

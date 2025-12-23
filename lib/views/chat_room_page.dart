@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 
 final supabase = Supabase.instance.client;
 
@@ -7,12 +10,14 @@ class ChatRoomPage extends StatefulWidget {
   final String conversationId;
   final String otherUserName;
   final String otherUserId;
+  final String currentUserId; // ✅ Add current user ID
 
   const ChatRoomPage({
     super.key,
     required this.conversationId,
     required this.otherUserName,
     required this.otherUserId,
+    required this.currentUserId, // ✅ Required parameter
   });
 
   @override
@@ -22,12 +27,14 @@ class ChatRoomPage extends StatefulWidget {
 class _ChatRoomPageState extends State<ChatRoomPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final ImagePicker _imagePicker = ImagePicker();
   
   List<Map<String, dynamic>> messages = [];
   bool loading = true;
-  
-  // Mock current user ID (same as everywhere else)
-  final String mockCurrentUserId = "11111111-1111-1111-1111-111111111111";
+  bool uploading = false;
+
+  // ⚠️ IMPORTANT: Change this to match your Supabase storage bucket name
+  final String storageBucket = 'chat_attachments';
 
   @override
   void initState() {
@@ -48,7 +55,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       
       final response = await supabase
           .from('messages')
-          .select('id, content, sender_id, created_at, users(username)')
+          .select('id, content, sender_id, created_at, file_url, file_type, users(username)')
           .eq('conversation_id', widget.conversationId)
           .order('created_at', ascending: true);
 
@@ -61,8 +68,10 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
             'content': msg['content'],
             'sender_id': msg['sender_id'],
             'created_at': msg['created_at'],
+            'file_url': msg['file_url'],
+            'file_type': msg['file_type'],
             'sender_name': msg['users']['username'] ?? 'Unknown',
-            'isMe': msg['sender_id'] == mockCurrentUserId,
+            'isMe': msg['sender_id'] == widget.currentUserId,
           };
         }).toList();
         loading = false;
@@ -84,17 +93,19 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     }
   }
 
-  Future<void> _sendMessage() async {
+  Future<void> _sendMessage({String? fileUrl, String? fileType}) async {
     final text = _messageController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && fileUrl == null) return;
 
     try {
       print('📤 Sending message...');
       
       await supabase.from('messages').insert({
         'conversation_id': widget.conversationId,
-        'sender_id': mockCurrentUserId,
-        'content': text,
+        'sender_id': widget.currentUserId,
+        'content': text.isEmpty ? null : text,
+        'file_url': fileUrl,
+        'file_type': fileType,
       });
 
       print('✅ Message sent');
@@ -117,6 +128,201 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         );
       }
     }
+  }
+
+  Future<void> _uploadAndSendFile(File file, String fileType) async {
+    setState(() => uploading = true);
+
+    try {
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${file.path.split('/').last}';
+      final filePath = '${widget.conversationId}/$fileName';
+
+      print('📤 Uploading file to: $filePath');
+
+      // Upload file to Supabase Storage
+      await supabase.storage.from(storageBucket).upload(
+        filePath,
+        file,
+        fileOptions: const FileOptions(upsert: true),
+      );
+
+      // Get public URL
+      final fileUrl = supabase.storage.from(storageBucket).getPublicUrl(filePath);
+
+      print('✅ File uploaded: $fileUrl');
+
+      // Send message with file URL
+      await _sendMessage(fileUrl: fileUrl, fileType: fileType);
+
+    } catch (e) {
+      print('❌ Error uploading file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error uploading file: $e'),
+            backgroundColor: Colors.red[700],
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } finally {
+      setState(() => uploading = false);
+    }
+  }
+
+  Future<void> _pickImage() async {
+    Navigator.pop(context); // Close bottom sheet
+    
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        await _uploadAndSendFile(File(image.path), 'image');
+      }
+    } catch (e) {
+      print('❌ Error picking image: $e');
+    }
+  }
+
+  Future<void> _pickDocument() async {
+    Navigator.pop(context); // Close bottom sheet
+    
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'txt'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        await _uploadAndSendFile(File(result.files.single.path!), 'document');
+      }
+    } catch (e) {
+      print('❌ Error picking document: $e');
+    }
+  }
+
+  Future<void> _takePhoto() async {
+    Navigator.pop(context); // Close bottom sheet
+    
+    try {
+      final XFile? photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (photo != null) {
+        await _uploadAndSendFile(File(photo.path), 'image');
+      }
+    } catch (e) {
+      print('❌ Error taking photo: $e');
+    }
+  }
+
+  Widget _buildMessageBubble(Map<String, dynamic> msg) {
+    final isMe = msg['isMe'] ?? false;
+    final hasFile = msg['file_url'] != null;
+    final fileType = msg['file_type'];
+
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.7,
+        ),
+        decoration: BoxDecoration(
+          gradient: isMe
+              ? LinearGradient(
+                  colors: [Colors.red[700]!, Colors.red[600]!],
+                )
+              : null,
+          color: isMe ? null : Colors.grey[200],
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isMe ? 16 : 4),
+            bottomRight: Radius.circular(isMe ? 4 : 16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 5,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (hasFile) ...[
+              if (fileType == 'image')
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    msg['file_url'],
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        height: 150,
+                        color: Colors.grey[300],
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            value: loadingProgress.expectedTotalBytes != null
+                                ? loadingProgress.cumulativeBytesLoaded /
+                                    loadingProgress.expectedTotalBytes!
+                                : null,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.insert_drive_file,
+                      color: isMe ? Colors.white : Colors.grey[700],
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'Document',
+                        style: TextStyle(
+                          color: isMe ? Colors.white : Colors.black87,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              if (msg['content'] != null && msg['content'].toString().isNotEmpty)
+                const SizedBox(height: 8),
+            ],
+            if (msg['content'] != null && msg['content'].toString().isNotEmpty)
+              Text(
+                msg['content'] ?? '',
+                style: TextStyle(
+                  color: isMe ? Colors.white : Colors.black87,
+                  fontSize: 15,
+                  height: 1.4,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -154,6 +360,11 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       ),
       body: Column(
         children: [
+          if (uploading)
+            LinearProgressIndicator(
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.red[700]!),
+            ),
           Expanded(
             child: loading
                 ? Center(
@@ -196,48 +407,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                         padding: const EdgeInsets.all(12),
                         itemCount: messages.length,
                         itemBuilder: (context, index) {
-                          final msg = messages[index];
-                          final isMe = msg['isMe'] ?? false;
-
-                          return Align(
-                            alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                              constraints: BoxConstraints(
-                                maxWidth: MediaQuery.of(context).size.width * 0.7,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: isMe
-                                    ? LinearGradient(
-                                        colors: [Colors.red[700]!, Colors.red[600]!],
-                                      )
-                                    : null,
-                                color: isMe ? null : Colors.grey[200],
-                                borderRadius: BorderRadius.only(
-                                  topLeft: const Radius.circular(16),
-                                  topRight: const Radius.circular(16),
-                                  bottomLeft: Radius.circular(isMe ? 16 : 4),
-                                  bottomRight: Radius.circular(isMe ? 4 : 16),
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 5,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Text(
-                                msg['content'] ?? '',
-                                style: TextStyle(
-                                  color: isMe ? Colors.white : Colors.black87,
-                                  fontSize: 15,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ),
-                          );
+                          return _buildMessageBubble(messages[index]);
                         },
                       ),
           ),
@@ -257,7 +427,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
               child: Row(
                 children: [
                   IconButton(
-                    onPressed: () {
+                    onPressed: uploading ? null : () {
                       showModalBottomSheet(
                         context: context,
                         shape: const RoundedRectangleBorder(
@@ -272,26 +442,17 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                                 ListTile(
                                   leading: Icon(Icons.image, color: Colors.red[700]),
                                   title: const Text('Image'),
-                                  onTap: () {
-                                    print('Image clicked');
-                                    Navigator.pop(context);
-                                  },
+                                  onTap: _pickImage,
                                 ),
                                 ListTile(
                                   leading: Icon(Icons.attach_file, color: Colors.red[700]),
                                   title: const Text('Document'),
-                                  onTap: () {
-                                    print('Document clicked');
-                                    Navigator.pop(context);
-                                  },
+                                  onTap: _pickDocument,
                                 ),
                                 ListTile(
                                   leading: Icon(Icons.camera_alt, color: Colors.red[700]),
                                   title: const Text('Camera'),
-                                  onTap: () {
-                                    print('Camera clicked');
-                                    Navigator.pop(context);
-                                  },
+                                  onTap: _takePhoto,
                                 ),
                               ],
                             ),
@@ -311,6 +472,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                       ),
                       child: TextField(
                         controller: _messageController,
+                        enabled: !uploading,
                         decoration: const InputDecoration(
                           hintText: 'Type a message...',
                           border: InputBorder.none,
@@ -338,7 +500,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                     ),
                     child: IconButton(
                       icon: const Icon(Icons.send_rounded, color: Colors.white),
-                      onPressed: _sendMessage,
+                      onPressed: uploading ? null : () => _sendMessage(),
                     ),
                   ),
                 ],
