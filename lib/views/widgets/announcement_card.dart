@@ -53,9 +53,7 @@ Future<void> _toggleReminder() async {
 
   try {
     if (_isAdded) {
-      // ❌ REMOVE
       
-      // 1️⃣ Get the stored Google Calendar event ID
       final reminderData = await supabase
           .from('announcement_reminders')
           .select('google_event_id')
@@ -63,7 +61,6 @@ Future<void> _toggleReminder() async {
           .eq('ann_id', widget.announcement.annId)
           .maybeSingle();
 
-      // 2️⃣ Delete from Google Calendar if event ID exists
       if (reminderData != null && reminderData['google_event_id'] != null) {
         try {
           await GoogleCalendarService.deleteEvent(
