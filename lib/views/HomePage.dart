@@ -23,6 +23,7 @@ import 'package:add_2_calendar/add_2_calendar.dart';
 import 'widgets/announcement_card.dart';
 import 'package:project/controllers/announcement_controller.dart';
 import 'widgets/competition_request_card.dart';
+import 'package:project/features/stories/screens/stories_row.dart';
 
 
 final supabase = Supabase.instance.client;
@@ -458,33 +459,7 @@ CategoryChip(
               const SizedBox(height: 20),
 
               // ================= STORIES =================
-              FutureBuilder<Map<String, dynamic>?>(
-                future: UserController.fetchUserData(widget.currentUserId),
-                builder: (context, userSnapshot) {
-                  if (!userSnapshot.hasData) {
-                    return const SizedBox(
-                      height: 120,
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-
-                  final profileImage = userSnapshot.data?['profile_image'];
-return Consumer<StoryProvider>(
-  builder: (context, storyProvider, _) {
-    return StorySection(
-      myAvatarUrl: profileImage,
-      stories: storyProvider.stories,
-      hasMyStory: storyProvider.stories.any(
-        (s) => s['user_id'] == widget.currentUserId,
-      ),
-      currentUserId: widget.currentUserId,
-    );
-  },
-);
-
-},
-              ),
-
+              const StoriesRow(),
               const SizedBox(height: 10),
               Divider(color: Colors.grey.shade300),
 

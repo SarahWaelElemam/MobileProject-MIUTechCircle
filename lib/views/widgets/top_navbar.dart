@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:project/features/search/views/search_screen.dart';
 
 class TopNavbar extends StatefulWidget implements PreferredSizeWidget {
   final int userId;
@@ -65,19 +66,26 @@ class _TopNavbarState extends State<TopNavbar> {
 
       actions: [
         // Search Icon with grey circle
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade200,
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.search,
-            color: Color.fromARGB(221, 96, 96, 96),
-            size: 20,
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SearchScreen()),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.search,
+              color: Color.fromARGB(221, 96, 96, 96),
+              size: 20,
+            ),
           ),
         ),
-
         const SizedBox(width: 15),
 
         // Profile Avatar - opens drawer

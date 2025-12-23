@@ -18,10 +18,14 @@ dependencies:
   http: ^1.2.0
   flutter_riverpod: ^2.4.0
   image_picker: ^1.0.7
-  file_picker: ^6.1.1
+  file_picker: ^10.3.8
   url_launcher: ^6.2.1
   intl: ^0.19.0
-  confetti: ^0.7.0  # 👈 Moved here from dev_dependencies
+  confetti: ^0.7.0
+  image_cropper: ^8.0.0  
+  cached_network_image: ^3.3.0
+  video_player: ^2.10.1
+  cloudinary_public: ^0.23.1
 
 dev_dependencies:
   flutter_test:
