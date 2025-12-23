@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:project/views/calender_screen.dart';
 
 class UserDrawerContent extends StatefulWidget {
   final int userId;
@@ -115,20 +116,19 @@ class _UserDrawerContentState extends State<UserDrawerContent> {
                     onTap: () {},
                   ),
                   ListTile(
-                    leading: const Icon(Icons.group),
-                    title: const Text("Study Groups"),
-                    onTap: () {},
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.event),
-                    title: const Text("Upcoming Events"),
-                    onTap: () {},
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.school),
-                    title: const Text("Internships"),
-                    onTap: () {},
-                  ),
+  leading: const Icon(Icons.group),
+  title: const Text("Calender"),
+  onTap: () {
+    Navigator.pop(context); // يقفل الـ Drawer
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CalendarScreen(userId: widget.userId),
+      ),
+    );
+  },
+),
+
                   ListTile(
                     leading: const Icon(Icons.settings),
                     title: const Text("Settings"),
