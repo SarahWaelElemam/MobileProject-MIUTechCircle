@@ -224,7 +224,7 @@ class StoriesController extends StateNotifier<StoriesState> {
       await _supabase.from('story_views').insert({
         'story_id': storyId,
         'viewer_id': currentUserId,
-        'viewed_at': DateTime.now().toIso8601String(),
+        'seen_at': DateTime.now().toIso8601String(),
       });
       debugPrint("DB insert successful.");
     } catch (e) {

@@ -1,5 +1,5 @@
 class Friendship {
-  final String friendshipId;
+  final int friendshipId;
   final int userId;
   final int friendId;
   final String status;
@@ -17,7 +17,9 @@ class Friendship {
 
   factory Friendship.fromJson(Map<String, dynamic> json) {
     return Friendship(
-      friendshipId: json['friendship_id'].toString(),
+      friendshipId: json['friendship_id'] is int
+          ? json['friendship_id']
+          : int.tryParse(json['friendship_id'].toString()) ?? 0,
       userId: json['user_id'] is int
           ? json['user_id']
           : int.tryParse(json['user_id'].toString()) ?? 0,

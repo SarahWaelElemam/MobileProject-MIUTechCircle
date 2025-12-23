@@ -34,7 +34,7 @@ class StoryHeader extends StatelessWidget {
             Row(
               children: [
                 Hero(
-                  tag: user.avatarUrl,
+                  tag: 'story_avatar_${user.id}',
                   child: CircleAvatar(
                     radius: 18,
                     backgroundColor: Colors.transparent,

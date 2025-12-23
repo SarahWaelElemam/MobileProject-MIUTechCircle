@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class StoryAvatar extends StatelessWidget {
+  final int userId;
   final String avatarUrl;
   final String username;
   final bool hasUnseenStories;
@@ -9,6 +10,7 @@ class StoryAvatar extends StatelessWidget {
 
   const StoryAvatar({
     super.key,
+    required this.userId,
     required this.avatarUrl,
     required this.username,
     required this.hasUnseenStories,
@@ -33,7 +35,7 @@ class StoryAvatar extends StatelessWidget {
                 : null,
           ),
           child: Hero(
-            tag: avatarUrl,
+            tag: 'story_avatar_$userId',
             child: CircleAvatar(
               radius: 32,
               backgroundColor: Colors.transparent,

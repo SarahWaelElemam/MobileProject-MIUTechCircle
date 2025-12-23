@@ -59,6 +59,7 @@ class StoriesRow extends ConsumerWidget {
                     }
                   },
                   child: StoryAvatar(
+                    userId: myStory.user.id,
                     avatarUrl: myStory.user.avatarUrl,
                     username: 'Your story',
                     hasUnseenStories: false,
@@ -114,6 +115,7 @@ class StoriesRow extends ConsumerWidget {
                   key: ValueKey(
                     '${friendStories.user.id}_${friendStories.hasUnseen(currentUserId)}',
                   ),
+                  userId: friendStories.user.id,
                   avatarUrl: friendStories.user.avatarUrl,
                   username: friendStories.user.username,
                   hasUnseenStories: friendStories.hasUnseen(currentUserId),
