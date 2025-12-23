@@ -672,7 +672,6 @@ class _MyProfileState extends State<MyProfile>
         }
 
         await supabase.from('likes').insert({
-          'like_id': nextLikeId,
           'user_id': widget.userId,
           'post_id': postId,
           'created_at': DateTime.now().toIso8601String(),
@@ -5763,7 +5762,6 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
         }
 
         await supabase.from('likes').insert({
-          'like_id': nextLikeId,
           'user_id': widget.currentUserId,
           'post_id': widget.post['post_id'],
           'created_at': DateTime.now().toIso8601String(),
