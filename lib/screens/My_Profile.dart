@@ -2913,7 +2913,7 @@ void _showCreatePostDialog() {
       // ✅ ADD TOP NAVBAR
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(60),
-        child: TopNavbar(userId: widget.userId, showDrawer: true),
+        child: TopNavbar(userId: widget.userId),
       ),
 
       // ✅ KEEP DRAWER

@@ -1,16 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_application_1/screens/My_Profile.dart';
+import 'package:flutter_application_1/screens/features/search/views/search_screen.dart';
 
 class TopNavbar extends StatefulWidget implements PreferredSizeWidget {
   final int userId;
-  final bool showDrawer;
 
-  const TopNavbar({
-    super.key,
-    required this.userId,
-    this.showDrawer = true,
-  });
+  const TopNavbar({super.key, required this.userId});
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -45,6 +40,7 @@ class _TopNavbarState extends State<TopNavbar> {
       });
 
       print("TopNavbar loaded image: $profileImageUrl");
+
     } catch (e) {
       print("Error loading profile image in navbar: $e");
       setState(() => isLoading = false);
@@ -56,8 +52,7 @@ class _TopNavbarState extends State<TopNavbar> {
     return AppBar(
       elevation: 0,
       backgroundColor: Colors.white,
-      automaticallyImplyLeading: false,
-      
+
       title: Row(
         children: const [
           Image(
@@ -71,61 +66,49 @@ class _TopNavbarState extends State<TopNavbar> {
 
       actions: [
         // Search Icon with grey circle
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade200,
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.search,
-            color: Color.fromARGB(221, 96, 96, 96),
-            size: 20,
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SearchScreen()),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.search,
+              color: Color.fromARGB(221, 96, 96, 96),
+              size: 20,
+            ),
           ),
         ),
-
         const SizedBox(width: 15),
 
-        // Profile Avatar
-        if (widget.showDrawer)
-          Builder(
-            builder: (context) => GestureDetector(
-              onTap: () {
-                Scaffold.of(context).openEndDrawer();
-              },
-              child: CircleAvatar(
-                radius: 18,
-                backgroundColor: Colors.grey.shade200,
-                backgroundImage: (profileImageUrl != null && profileImageUrl!.isNotEmpty)
-                    ? NetworkImage(profileImageUrl!)
-                    : null,
-                child: (profileImageUrl == null || profileImageUrl!.isEmpty)
-                    ? const Icon(Icons.person, color: Colors.black)
-                    : null,
-              ),
-            ),
-          )
-        else
-          GestureDetector(
+        // Profile Avatar - opens drawer
+        Builder(
+          builder: (context) => GestureDetector(
             onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => MyProfile(userId: widget.userId),
-                ),
-              );
+              Scaffold.of(context).openEndDrawer();
             },
             child: CircleAvatar(
               radius: 18,
               backgroundColor: Colors.grey.shade200,
+
+              // If image exists → show URL; else → show icon
               backgroundImage: (profileImageUrl != null && profileImageUrl!.isNotEmpty)
                   ? NetworkImage(profileImageUrl!)
                   : null,
+
               child: (profileImageUrl == null || profileImageUrl!.isEmpty)
                   ? const Icon(Icons.person, color: Colors.black)
                   : null,
             ),
           ),
+        ),
 
         const SizedBox(width: 15),
       ],

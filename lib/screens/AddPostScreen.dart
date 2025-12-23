@@ -53,7 +53,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
       backgroundColor: const Color(0xffF5F7FA),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(60),
-        child: TopNavbar(userId: widget.currentUserId ?? 6, showDrawer: true),
+        child: TopNavbar(userId: widget.currentUserId ?? 6),
       ),
       endDrawer: UserDrawerContent(userId: widget.currentUserId ?? 6),
       body: const Center(

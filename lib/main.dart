@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' as riverpod;
 
 // Import your existing screens
 import 'package:flutter_application_1/screens/Splash_Screen.dart';
@@ -19,7 +20,6 @@ import 'package:flutter_application_1/screens/auth/reset_password_page.dart';
 import 'package:flutter_application_1/screens/auth/email_verification_page.dart';
 import 'package:flutter_application_1/screens/auth/email_confirmed_page.dart';
 
-// Import home screens
 // Import service
 import 'package:flutter_application_1/supabase_service.dart';
 
@@ -31,7 +31,6 @@ import 'package:flutter_application_1/screens/providers/comment_provider.dart';
 import 'package:flutter_application_1/screens/providers/repost_provider.dart';
 import 'package:flutter_application_1/screens/providers/StoryProvider.dart';
 import 'package:flutter_application_1/screens/providers/SavedPostProvider.dart';
-// Import new HomePage (adjust path as needed)
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -68,7 +67,7 @@ Future<void> main() async {
           
           // ✅ FIXED: Pass user.id as userId parameter
           await service.createUserProfile(
-            userId: user.id,  // ✅ THIS WAS MISSING
+            userId: user.id,
             name: metadata?['name'] ?? 'User',
             email: user.email!,
             role: metadata?['role'] ?? 'Student',
@@ -97,7 +96,14 @@ Future<void> main() async {
     ),
   );
 
-  runApp(const MIUTechCircleApp());
+  // ============================================================
+  // Run app with BOTH Riverpod ProviderScope AND MultiProvider
+  // ============================================================
+  runApp(
+    riverpod.ProviderScope(
+      child: const MIUTechCircleApp(),
+    ),
+  );
 }
 
 class MIUTechCircleApp extends StatelessWidget {
@@ -159,7 +165,6 @@ class MIUTechCircleApp extends StatelessWidget {
           '/email-verification': (_) => const EmailVerificationPage(email: ''),
           '/email-confirmed': (_) => const EmailConfirmedPage(),
           '/home': (_) => HomePage(currentUserId: _getCurrentUserId()),
-          // Add the new HomePage with provider integration
           '/new-home': (_) => HomePage(currentUserId: _getCurrentUserId()),
         },
       ),

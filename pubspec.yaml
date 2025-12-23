@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   provider: ^6.1.5+1
+  flutter_riverpod: ^2.5.1
   flutter_animate: ^4.5.2
   google_fonts: ^6.3.2
   supabase_flutter: ^2.10.3
@@ -22,7 +23,11 @@ dependencies:
   googleapis: ^13.1.0
   googleapis_auth: ^1.4.1
   http: ^1.2.0
-  
+  image_cropper: ^8.0.0
+  video_player: ^2.10.1
+  cloudinary_public: ^0.23.1
+  cached_network_image: ^3.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

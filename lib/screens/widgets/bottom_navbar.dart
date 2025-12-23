@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/screens/AddPostScreen.dart';
 import 'package:flutter_application_1/screens/My_Profile.dart';
+import 'package:flutter_application_1/screens/messaging_page.dart';
+import 'package:flutter_application_1/screens/notifications_page.dart';
+import 'package:flutter_application_1/screens/calender_screen.dart';
 
 class BottomNavbar extends StatelessWidget {
   final int? currentUserId;
@@ -12,6 +15,69 @@ class BottomNavbar extends StatelessWidget {
     this.currentIndex = 0,
   });
 
+  void _onItemTapped(BuildContext context, int index) {
+    // Don't navigate if already on that page
+    if (index == currentIndex) return;
+
+    // Handle navigation based on index
+    switch (index) {
+      case 0: // HOME
+        if (currentIndex != 0) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+        break;
+
+      case 1: // CHAT
+        if (currentUserId != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChatsListPage(currentUserId: currentUserId!),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please log in to access chat')),
+          );
+        }
+        break;
+
+      case 2: // NOTIFICATIONS (or CALENDAR depending on your needs)
+        if (currentUserId != null) {
+          // You can choose between NotificationsPage or CalendarScreen
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => NotificationsPage(userId: currentUserId!),
+              // Or use: builder: (_) => CalendarScreen(userId: currentUserId!),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please log in to access notifications')),
+          );
+        }
+        break;
+
+      case 3: // PROFILE
+        if (currentUserId != null) {
+          if (currentIndex != 3) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => MyProfile(userId: currentUserId!),
+              ),
+            );
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please log in to access profile')),
+          );
+        }
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -19,65 +85,56 @@ class BottomNavbar extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
+          // Bottom Navigation Bar Container
           Container(
             height: 75,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: const BoxDecoration(
               color: Colors.white,
               boxShadow: [
-                BoxShadow(color: Colors.black12, blurRadius: 6),
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 6,
+                  offset: Offset(0, -2),
+                ),
               ],
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
+                // HOME
                 _NavItem(
                   icon: Icons.home,
                   label: "Home",
                   selected: currentIndex == 0,
-                  onTap: () {
-                    if (currentIndex != 0) {
-                      Navigator.of(context).popUntil((route) => route.isFirst);
-                    }
-                  },
+                  onTap: () => _onItemTapped(context, 0),
                 ),
+                
+                // CHAT
                 _NavItem(
                   icon: Icons.chat,
                   label: "Chat",
                   selected: currentIndex == 1,
-                  onTap: () {
-                    // TODO: Navigate to Chat screen
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Chat feature coming soon!')),
-                    );
-                  },
+                  onTap: () => _onItemTapped(context, 1),
                 ),
+                
+                // Empty space for floating button
                 const SizedBox(width: 55),
+                
+                // NOTIFICATIONS
                 _NavItem(
                   icon: Icons.notifications,
                   label: "Notifications",
                   selected: currentIndex == 2,
-                  onTap: () {
-                    // TODO: Navigate to Notifications screen
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Notifications feature coming soon!')),
-                    );
-                  },
+                  onTap: () => _onItemTapped(context, 2),
                 ),
+                
+                // PROFILE
                 _NavItem(
                   icon: Icons.person,
                   label: "Profile",
                   selected: currentIndex == 3,
-                  onTap: () {
-                    if (currentUserId != null && currentIndex != 3) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => MyProfile(userId: currentUserId!),
-                        ),
-                      );
-                    }
-                  },
+                  onTap: () => _onItemTapped(context, 3),
                 ),
               ],
             ),
@@ -109,6 +166,7 @@ class BottomNavbar extends StatelessWidget {
                 ),
                 child: IconButton(
                   onPressed: () {
+                    // Navigate to Add Post Screen
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -116,7 +174,11 @@ class BottomNavbar extends StatelessWidget {
                       ),
                     );
                   },
-                  icon: const Icon(Icons.add, color: Colors.white, size: 36),
+                  icon: const Icon(
+                    Icons.add,
+                    color: Colors.white,
+                    size: 36,
+                  ),
                 ),
               ),
             ),
@@ -127,7 +189,9 @@ class BottomNavbar extends StatelessWidget {
   }
 }
 
+// ============================================================
 // Bottom Nav Item Widget
+// ============================================================
 class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
