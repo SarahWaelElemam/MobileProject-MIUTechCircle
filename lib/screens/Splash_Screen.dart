@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_application_1/screens/LoginScreen.dart'; // Ensure path is correct
+import 'package:flutter_application_1/screens/auth/login_page.dart'; // Updated import
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -40,12 +40,12 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
-    // Navigate to Login after 4 seconds
+    // Navigate to Login page after 4 seconds
     Timer(const Duration(seconds: 4), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const LoginScreen(),
+            pageBuilder: (context, animation, secondaryAnimation) => const LoginPage(),
             transitionsBuilder: (context, animation, secondaryAnimation, child) {
               return FadeTransition(opacity: animation, child: child);
             },
@@ -62,8 +62,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
-// ... (previous imports and state setup remain the same)
-
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -73,7 +71,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // --- Gradient Orbs and Geometric Lines (Keep as is) ---
+          // --- Gradient Orbs and Geometric Lines ---
           Positioned(
             top: -size.width * 0.2,
             right: -size.width * 0.2,
@@ -139,9 +137,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                             letterSpacing: -1.0,
                           ),
                         ),
-                        const SizedBox(height: 16), // Increased spacing slightly
+                        const SizedBox(height: 16),
                         
-                        // MODIFIED SECTION: RichText for branding
+                        // RichText for branding
                         RichText(
                           text: TextSpan(
                             style: TextStyle(
@@ -154,9 +152,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                               TextSpan(
                                 text: "MIU TechCircle.\n",
                                 style: TextStyle(
-                                  fontSize: 24, // Bigger size
-                                  color: primaryRed, // Red color
-                                  fontWeight: FontWeight.w900, // Extra bold for emphasis
+                                  fontSize: 24,
+                                  color: primaryRed,
+                                  fontWeight: FontWeight.w900,
                                   height: 1.2,
                                 ),
                               ),
@@ -191,8 +189,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       ),
     );
   }
-
-// ... (Rest of the helper methods and Painter class remain the same)
 
   Widget _buildGradientOrb({required double size, required Color color, required double opacity}) {
     return Container(
