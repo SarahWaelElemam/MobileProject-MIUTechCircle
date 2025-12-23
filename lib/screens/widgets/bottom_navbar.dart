@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_application_1/screens/my_profile.dart';
+import 'package:flutter_application_1/screens/AddPostScreen.dart';
+import 'package:flutter_application_1/screens/My_Profile.dart';
 
 class BottomNavbar extends StatelessWidget {
-  final int selectedIndex;
-  final Function(int) onItemTapped;
+  final int? currentUserId;
+  final int currentIndex;
 
   const BottomNavbar({
-    Key? key,
-    required this.selectedIndex,
-    required this.onItemTapped,
-  }) : super(key: key);
+    super.key,
+    this.currentUserId,
+    this.currentIndex = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -31,20 +32,58 @@ class BottomNavbar extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _NavItem(
+                  icon: Icons.home,
+                  label: "Home",
+                  selected: currentIndex == 0,
+                  onTap: () {
+                    if (currentIndex != 0) {
+                      Navigator.of(context).popUntil((route) => route.isFirst);
+                    }
+                  },
+                ),
+                _NavItem(
+                  icon: Icons.chat,
+                  label: "Chat",
+                  selected: currentIndex == 1,
+                  onTap: () {
+                    // TODO: Navigate to Chat screen
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Chat feature coming soon!')),
+                    );
+                  },
+                ),
+                const SizedBox(width: 55),
+                _NavItem(
                   icon: Icons.notifications,
                   label: "Notifications",
-                  selected: selectedIndex == 3,
-                  onTap: () => onItemTapped(3),
+                  selected: currentIndex == 2,
+                  onTap: () {
+                    // TODO: Navigate to Notifications screen
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Notifications feature coming soon!')),
+                    );
+                  },
                 ),
                 _NavItem(
                   icon: Icons.person,
                   label: "Profile",
-                  selected: selectedIndex == 4,
-                  onTap: () => onItemTapped(4),
+                  selected: currentIndex == 3,
+                  onTap: () {
+                    if (currentUserId != null && currentIndex != 3) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => MyProfile(userId: currentUserId!),
+                        ),
+                      );
+                    }
+                  },
                 ),
               ],
             ),
           ),
+          
+          // Floating Add Button
           Positioned(
             top: -20,
             left: 0,
@@ -69,7 +108,14 @@ class BottomNavbar extends StatelessWidget {
                   ],
                 ),
                 child: IconButton(
-                  onPressed: () => onItemTapped(2),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AddPostScreen(),
+                      ),
+                    );
+                  },
                   icon: const Icon(Icons.add, color: Colors.white, size: 36),
                 ),
               ),
@@ -81,17 +127,18 @@ class BottomNavbar extends StatelessWidget {
   }
 }
 
+// Bottom Nav Item Widget
 class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _NavItem({
     required this.icon,
     required this.label,
-    required this.selected,
-    required this.onTap,
+    this.selected = false,
+    this.onTap,
   });
 
   @override

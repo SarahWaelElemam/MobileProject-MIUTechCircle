@@ -5,11 +5,16 @@ import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:io';
 import 'dart:typed_data';
+import 'widgets/top_navbar.dart';
+import 'widgets/bottom_navbar.dart';
+import 'widgets/user_drawer_header.dart';
 
 final supabase = Supabase.instance.client;
 
 class AddPostScreen extends StatefulWidget {
-  const AddPostScreen({Key? key}) : super(key: key);
+  final int? currentUserId;
+
+  const AddPostScreen({Key? key, this.currentUserId = 6}) : super(key: key);
 
   @override
   State<AddPostScreen> createState() => _AddPostScreenState();
@@ -30,7 +35,8 @@ class _AddPostScreenState extends State<AddPostScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       isDismissible: false,
-      builder: (context) => const CategorySelectionModal(),
+      builder: (context) =>
+          CategorySelectionModal(userId: widget.currentUserId ?? 6),
     ).then((result) {
       if (result == null) {
         Navigator.pop(context);
@@ -43,19 +49,29 @@ class _AddPostScreenState extends State<AddPostScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Center(
-        child: CircularProgressIndicator(
-          color: Color(0xFFE63946),
-        ),
+    return Scaffold(
+      backgroundColor: const Color(0xffF5F7FA),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(60),
+        child: TopNavbar(userId: widget.currentUserId ?? 6, showDrawer: true),
+      ),
+      endDrawer: UserDrawerContent(userId: widget.currentUserId ?? 6),
+      body: const Center(
+        child: CircularProgressIndicator(color: Color(0xFFE63946)),
+      ),
+      bottomNavigationBar: BottomNavbar(
+        currentUserId: widget.currentUserId ?? 6,
+        currentIndex: -1, // No tab selected for AddPost screen
       ),
     );
   }
 }
 
 class CategorySelectionModal extends StatefulWidget {
-  const CategorySelectionModal({Key? key}) : super(key: key);
+  final int userId;
+
+  const CategorySelectionModal({Key? key, required this.userId})
+    : super(key: key);
 
   @override
   State<CategorySelectionModal> createState() => _CategorySelectionModalState();
@@ -156,13 +172,14 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
 
   Future<String?> _uploadFile(XFile file, String folder) async {
     try {
-      // Check if bucket exists, if not, inform user
       final bytes = await file.readAsBytes();
       final fileExt = file.name.split('.').last;
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExt';
       final filePath = '$folder/$fileName';
 
-      await supabase.storage.from('Posts').uploadBinary(
+      await supabase.storage
+          .from('Posts')
+          .uploadBinary(
             filePath,
             bytes,
             fileOptions: FileOptions(
@@ -175,12 +192,13 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
       return publicUrl;
     } catch (e) {
       print('Error uploading file: $e');
-      // If bucket doesn't exist, just continue without media
       if (e.toString().contains('Bucket not found')) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Storage bucket not configured. Post will be created without images.'),
+              content: Text(
+                'Storage bucket not configured. Post will be created without images.',
+              ),
               backgroundColor: Colors.orange,
               duration: Duration(seconds: 3),
             ),
@@ -191,17 +209,23 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
     }
   }
 
-Future<void> _createPost() async {
-    if (_postController.text.trim().isEmpty && _selectedImages.isEmpty && _selectedFiles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add some text, an image, or a file')),
-      );
+  Future<void> _createPost() async {
+    if (_postController.text.trim().isEmpty &&
+        _selectedImages.isEmpty &&
+        _selectedFiles.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please add some content')));
       return;
     }
 
+    // Validate announcement requirements
     if (_postType == 'Announcement' && _selectedDateTime == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select date and time for announcement')),
+        const SnackBar(
+          content: Text('Please select date and time for announcement'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
       );
       return;
     }
@@ -209,68 +233,123 @@ Future<void> _createPost() async {
     setState(() => _isUploading = true);
 
     try {
-      String imageMediaUrl = '';
-      String attachedFileUrl = '';
+      final userId = widget.userId;
 
-      // 1. UPLOAD IMAGE (Photos)
-      if (_selectedImages.isNotEmpty) {
-        final image = _selectedImages.first;
-        final bytes = await image.readAsBytes();
-        final fileExt = image.name.split('.').last;
-        final fileName = 'img_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
-        
-        await supabase.storage.from('Posts').uploadBinary(
-          'post_images/$fileName', 
-          bytes,
-          fileOptions: FileOptions(contentType: 'image/$fileExt'),
-        );
-        imageMediaUrl = supabase.storage.from('Posts').getPublicUrl('post_images/$fileName');
-      }
+      if (_postType == 'Announcement') {
+        // ========================================
+        // INSERT INTO ANNOUNCEMENTS TABLE
+        // ========================================
+        final announcementData = {
+          'auth_id': userId,
+          'date': _selectedDateTime!.toIso8601String().split(
+            'T',
+          )[0], // YYYY-MM-DD
+          'time':
+              '${_selectedDateTime!.hour.toString().padLeft(2, '0')}:${_selectedDateTime!.minute.toString().padLeft(2, '0')}:00', // HH:MM:SS
+          'title': _selectedCategory!['name'],
+          'description': _postController.text.trim(),
+          'category_id': _selectedCategory!['category_id'],
+          'created_at': DateTime.now().toIso8601String(),
+        };
 
-      // 2. UPLOAD FILE (PDFs, Docs, etc.)
-      if (_selectedFiles.isNotEmpty) {
-        final file = _selectedFiles.first;
-        final Uint8List fileData = kIsWeb ? file.bytes! : await File(file.path!).readAsBytes();
-        final fileExt = file.extension ?? 'dat';
-        final fileName = 'doc_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
-        
-        await supabase.storage.from('Posts').uploadBinary(
-          'post_files/$fileName', 
-          fileData,
-          fileOptions: FileOptions(contentType: 'application/$fileExt'),
-        );
-        attachedFileUrl = supabase.storage.from('Posts').getPublicUrl('post_files/$fileName');
-      }
+        await supabase.from('announcements').insert(announcementData);
 
-      // 3. INSERT INTO DATABASE
-      const userId = 6; 
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Announcement scheduled successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context, {'success': true, 'type': 'announcement'});
+        }
+      } else {
+        // ========================================
+        // INSERT INTO POSTS TABLE (Regular Post)
+        // ========================================
+        String imageMediaUrl = '';
+        String attachedFileUrl = '';
 
-      await supabase.from('posts').insert({
-        'author_id': userId,
-        'content': _postController.text.trim(),
-        'media_url': imageMediaUrl,
-        'file_url': attachedFileUrl, // Make sure this column exists in Supabase
-        'category_id': _selectedCategory!['category_id'],
-        'title': _selectedCategory!['name'], // Category name as title
-        'created_at': DateTime.now().toIso8601String(),
-      });
+        // Upload images
+        if (_selectedImages.isNotEmpty) {
+          final image = _selectedImages.first;
+          final bytes = await image.readAsBytes();
+          final fileExt = image.name.split('.').last;
+          final fileName =
+              'img_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Post created successfully!'), backgroundColor: Colors.green),
-        );
-        Navigator.pop(context, {'success': true});
+          await supabase.storage
+              .from('Posts')
+              .uploadBinary(
+                'post_images/$fileName',
+                bytes,
+                fileOptions: FileOptions(contentType: 'image/$fileExt'),
+              );
+          imageMediaUrl = supabase.storage
+              .from('Posts')
+              .getPublicUrl('post_images/$fileName');
+        }
+
+        // Upload files
+        if (_selectedFiles.isNotEmpty) {
+          final file = _selectedFiles.first;
+          final Uint8List fileData = kIsWeb
+              ? file.bytes!
+              : await File(file.path!).readAsBytes();
+          final fileExt = file.extension ?? 'dat';
+          final fileName =
+              'doc_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+
+          await supabase.storage
+              .from('Posts')
+              .uploadBinary(
+                'post_files/$fileName',
+                fileData,
+                fileOptions: FileOptions(contentType: 'application/$fileExt'),
+              );
+          attachedFileUrl = supabase.storage
+              .from('Posts')
+              .getPublicUrl('post_files/$fileName');
+        }
+
+        final postData = {
+          'author_id': userId,
+          'content': _postController.text.trim(),
+          'media_url': imageMediaUrl,
+          'file_url': attachedFileUrl,
+          'category_id': _selectedCategory!['category_id'],
+          'title': _selectedCategory!['name'],
+          'created_at': DateTime.now().toIso8601String(),
+        };
+
+        await supabase.from('posts').insert(postData);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Post created successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context, {'success': true, 'type': 'post'});
+        }
       }
     } catch (e) {
+      print('Error creating post: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save post: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Failed to create: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
-  } Future<void> _pickImages() async {
+  }
+
+  Future<void> _pickImages() async {
     try {
       final List<XFile> images = await _imagePicker.pickMultiImage();
       if (images.isNotEmpty) {
@@ -450,7 +529,8 @@ Future<void> _createPost() async {
       animation: _heightAnimation,
       builder: (context, child) {
         return Container(
-          height: MediaQuery.of(context).size.height *
+          height:
+              MediaQuery.of(context).size.height *
               (_showCreatePost ? _heightAnimation.value : 0.6),
           decoration: const BoxDecoration(
             color: Colors.white,
@@ -495,10 +575,7 @@ Future<void> _createPost() async {
               const SizedBox(height: 8),
               Text(
                 'Choose the type of post you want to create',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -507,9 +584,7 @@ Future<void> _createPost() async {
         Expanded(
           child: _isLoadingCategories
               ? const Center(
-                  child: CircularProgressIndicator(
-                    color: Color(0xFFE63946),
-                  ),
+                  child: CircularProgressIndicator(color: Color(0xFFE63946)),
                 )
               : LayoutBuilder(
                   builder: (context, constraints) {
@@ -559,7 +634,6 @@ Future<void> _createPost() async {
   }
 
   Widget _buildCategoryGrid() {
-    // Create rows of 3 categories each
     List<Widget> rows = [];
     for (int i = 0; i < _categories.length; i += 3) {
       List<Widget> rowChildren = [];
@@ -579,11 +653,7 @@ Future<void> _createPost() async {
           rowChildren.add(const SizedBox(width: 16));
         }
       }
-      rows.add(
-        Row(
-          children: rowChildren,
-        ),
-      );
+      rows.add(Row(children: rowChildren));
       if (i + 3 < _categories.length) {
         rows.add(const SizedBox(height: 16));
       }
@@ -632,7 +702,7 @@ Future<void> _createPost() async {
     }
   }
 
-Widget _buildCreatePostView() {
+  Widget _buildCreatePostView() {
     return ClipRRect(
       borderRadius: const BorderRadius.only(
         topLeft: Radius.circular(30),
@@ -651,12 +721,16 @@ Widget _buildCreatePostView() {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              // --- HEADER BAR ---
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  border: Border(bottom: BorderSide(color: Colors.grey[200]!, width: 1)),
+                  border: Border(
+                    bottom: BorderSide(color: Colors.grey[200]!, width: 1),
+                  ),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -665,14 +739,22 @@ Widget _buildCreatePostView() {
                       children: [
                         IconButton(
                           onPressed: _goBackToCategories,
-                          icon: const Icon(Icons.arrow_back, color: Colors.black87, size: 24),
+                          icon: const Icon(
+                            Icons.arrow_back,
+                            color: Colors.black87,
+                            size: 24,
+                          ),
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                         ),
                         const SizedBox(width: 16),
                         const Text(
                           'Create Post',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black87),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
                         ),
                       ],
                     ),
@@ -680,21 +762,36 @@ Widget _buildCreatePostView() {
                       onPressed: _isUploading ? null : _createPost,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFE63946),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                         elevation: 0,
                       ),
                       child: _isUploading
                           ? const SizedBox(
-                              width: 16, height: 16,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
                             )
-                          : const Text('Upload', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white)),
+                          : const Text(
+                              'Upload',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
                     ),
                   ],
                 ),
               ),
-              // --- BODY ---
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(20),
@@ -707,7 +804,11 @@ Widget _buildCreatePostView() {
                           CircleAvatar(
                             radius: 28,
                             backgroundColor: Colors.grey[300],
-                            child: Icon(Icons.person, size: 30, color: Colors.grey[600]),
+                            child: Icon(
+                              Icons.person,
+                              size: 30,
+                              color: Colors.grey[600],
+                            ),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
@@ -717,40 +818,66 @@ Widget _buildCreatePostView() {
                               minLines: 4,
                               decoration: InputDecoration(
                                 hintText: "What's new?",
-                                hintStyle: TextStyle(color: Colors.grey[400], fontSize: 17),
+                                hintStyle: TextStyle(
+                                  color: Colors.grey[400],
+                                  fontSize: 17,
+                                ),
                                 border: InputBorder.none,
                               ),
-                              style: const TextStyle(fontSize: 17, color: Colors.black87, height: 1.4),
+                              style: const TextStyle(
+                                fontSize: 17,
+                                color: Colors.black87,
+                                height: 1.4,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      
-                      // --- IMAGE PREVIEWS ---
+
                       if (_selectedImages.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
-                          children: _selectedImages.asMap().entries.map((entry) {
+                          children: _selectedImages.asMap().entries.map((
+                            entry,
+                          ) {
                             return FutureBuilder<Uint8List>(
                               future: entry.value.readAsBytes(),
                               builder: (context, snapshot) {
-                                if (!snapshot.hasData) return Container(width: 100, height: 100, color: Colors.grey[100]);
+                                if (!snapshot.hasData)
+                                  return Container(
+                                    width: 100,
+                                    height: 100,
+                                    color: Colors.grey[100],
+                                  );
                                 return Stack(
                                   children: [
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
-                                      child: Image.memory(snapshot.data!, width: 100, height: 100, fit: BoxFit.cover),
+                                      child: Image.memory(
+                                        snapshot.data!,
+                                        width: 100,
+                                        height: 100,
+                                        fit: BoxFit.cover,
+                                      ),
                                     ),
                                     Positioned(
-                                      top: 4, right: 4,
+                                      top: 4,
+                                      right: 4,
                                       child: GestureDetector(
                                         onTap: () => _removeImage(entry.key),
                                         child: Container(
                                           padding: const EdgeInsets.all(4),
-                                          decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                                          child: const Icon(Icons.close, color: Colors.white, size: 16),
+                                          decoration: const BoxDecoration(
+                                            color: Colors.red,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.close,
+                                            color: Colors.white,
+                                            size: 16,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -762,7 +889,6 @@ Widget _buildCreatePostView() {
                         ),
                       ],
 
-                      // --- FILE PREVIEWS ---
                       if (_selectedFiles.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         ..._selectedFiles.asMap().entries.map((entry) {
@@ -777,19 +903,43 @@ Widget _buildCreatePostView() {
                             ),
                             child: Row(
                               children: [
-                                Icon(_getFileIcon(file.name), color: const Color(0xFFE63946), size: 24),
+                                Icon(
+                                  _getFileIcon(file.name),
+                                  color: const Color(0xFFE63946),
+                                  size: 24,
+                                ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text(file.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
-                                      Text(_formatFileSize(file.bytes?.length ?? file.size ?? 0), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                      Text(
+                                        file.name,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text(
+                                        _formatFileSize(
+                                          file.bytes?.length ?? file.size ?? 0,
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.close, color: Colors.red, size: 20),
+                                  icon: const Icon(
+                                    Icons.close,
+                                    color: Colors.red,
+                                    size: 20,
+                                  ),
                                   onPressed: () => _removeFile(entry.key),
                                 ),
                               ],
@@ -801,43 +951,65 @@ Widget _buildCreatePostView() {
                   ),
                 ),
               ),
-              // --- BOTTOM TOOLS ---
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  border: Border(top: BorderSide(color: Colors.grey[200]!, width: 1)),
+                  border: Border(
+                    top: BorderSide(color: Colors.grey[200]!, width: 1),
+                  ),
                 ),
                 child: Row(
                   children: [
-                    // Category Chip
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 7,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.grey[100],
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(color: Colors.grey[300]!),
                       ),
-                      child: Text(_selectedCategory?['name'] ?? 'Category', style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.w500)),
+                      child: Text(
+                        _selectedCategory?['name'] ?? 'Category',
+                        style: TextStyle(
+                          color: Colors.grey[700],
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ),
                     const Spacer(),
                     if (_postType != 'Announcement') ...[
-                      IconButton(onPressed: _pickImages, icon: Icon(Icons.image_outlined, color: Colors.grey[600])),
-                      IconButton(onPressed: _pickFiles, icon: Icon(Icons.attach_file, color: Colors.grey[600])),
+                      IconButton(
+                        onPressed: _pickImages,
+                        icon: Icon(
+                          Icons.image_outlined,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _pickFiles,
+                        icon: Icon(Icons.attach_file, color: Colors.grey[600]),
+                      ),
                     ] else ...[
-                       // Announcement date trigger
-                       TextButton.icon(
-                         onPressed: _selectDateTime,
-                         icon: const Icon(Icons.calendar_today, size: 18),
-                         label: Text(_selectedDateTime == null ? "Set Time" : "Scheduled"),
-                       )
-                    ]
+                      TextButton.icon(
+                        onPressed: _selectDateTime,
+                        icon: const Icon(Icons.calendar_today, size: 18),
+                        label: Text(
+                          _selectedDateTime == null ? "Set Time" : "Scheduled",
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
-          // --- UPLOADING OVERLAY ---
           if (_isUploading)
             Container(
               color: Colors.black.withOpacity(0.3),
@@ -850,7 +1022,13 @@ Widget _buildCreatePostView() {
                       children: [
                         CircularProgressIndicator(color: Color(0xFFE63946)),
                         SizedBox(height: 16),
-                        Text('Uploading post...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                        Text(
+                          'Uploading post...',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -861,7 +1039,6 @@ Widget _buildCreatePostView() {
       ),
     );
   }
-
 }
 
 class _CategoryCard extends StatelessWidget {
@@ -903,11 +1080,7 @@ class _CategoryCard extends StatelessWidget {
                 color: Colors.white.withOpacity(0.2),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                icon,
-                size: 32,
-                color: Colors.white,
-              ),
+              child: Icon(icon, size: 32, color: Colors.white),
             ),
             const SizedBox(height: 10),
             Text(

@@ -1,10 +1,13 @@
+//MAIN main.dart
+// ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
 
 // Import your existing screens
 import 'package:flutter_application_1/screens/Splash_Screen.dart';
-import 'package:flutter_application_1/screens/HomeScreen.dart';
+import 'package:flutter_application_1/screens/HomePage.dart';
 import 'package:flutter_application_1/screens/My_Profile.dart';
 import 'package:flutter_application_1/screens/AddPostScreen.dart';
 
@@ -17,10 +20,18 @@ import 'package:flutter_application_1/screens/auth/email_verification_page.dart'
 import 'package:flutter_application_1/screens/auth/email_confirmed_page.dart';
 
 // Import home screens
-import 'package:flutter_application_1/screens/home/dummy_home_page.dart';
-
 // Import service
 import 'package:flutter_application_1/supabase_service.dart';
+
+// ============================================================
+// Import Providers from the new integration
+// ============================================================
+import 'package:flutter_application_1/screens/providers/post_provider.dart';
+import 'package:flutter_application_1/screens/providers/comment_provider.dart';
+import 'package:flutter_application_1/screens/providers/repost_provider.dart';
+import 'package:flutter_application_1/screens/providers/StoryProvider.dart';
+import 'package:flutter_application_1/screens/providers/SavedPostProvider.dart';
+// Import new HomePage (adjust path as needed)
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -94,47 +105,79 @@ class MIUTechCircleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'MIU TechCircle',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primaryColor: const Color(0xFFE63946),
-        scaffoldBackgroundColor: Colors.white,
-        fontFamily: 'Roboto',
-        brightness: Brightness.light,
-        colorScheme: ColorScheme.light(
-          primary: const Color(0xFFE63946),
-          secondary: const Color(0xFFDC2F41),
-          surface: Colors.white,
-          background: Colors.grey[50]!,
+    return MultiProvider(
+      // ============================================================
+      // Providers wrapped around the entire app
+      // ============================================================
+      providers: [
+        ChangeNotifierProvider(create: (_) => SavedPostProvider()),
+        ChangeNotifierProvider(create: (_) => StoryProvider()),
+        ChangeNotifierProvider(
+          create: (_) => PostProvider(
+            currentUserId: _getCurrentUserId(),
+          ),
         ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black87,
-          elevation: 0,
-          systemOverlayStyle: SystemUiOverlayStyle.dark,
+        ChangeNotifierProvider(
+          create: (_) => RepostProvider(
+            currentUserId: _getCurrentUserId(),
+          ),
         ),
-      ),
-      
-      // Start with splash screen
-      home: const SplashScreen(),
-      
-      
-      
-      // Define routes (Note: MyProfile requires userId parameter, use Navigator.push instead of named route)
-      routes: {
-        '/splash': (_) => const SplashScreen(),
-        '/login': (_) => const LoginPage(),
-        '/signup': (_) => const SignUpPage(),
-        '/forgot-password': (_) => const ForgotPasswordPage(),
-        '/reset-password': (_) => const ResetPasswordPage(),
-        '/email-verification': (_) => const EmailVerificationPage(email: ''),
-        '/email-confirmed': (_) => const EmailConfirmedPage(),
-        '/home': (_) => const DummyHomePage(),
-        '/dummy-home': (_) => const DummyHomePage(),
+        ChangeNotifierProvider(create: (_) => CommentProvider()),
+      ],
+      child: MaterialApp(
+        title: 'MIU TechCircle',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          primaryColor: const Color(0xFFE63946),
+          scaffoldBackgroundColor: Colors.white,
+          fontFamily: 'Roboto',
+          brightness: Brightness.light,
+          colorScheme: ColorScheme.light(
+            primary: const Color(0xFFE63946),
+            secondary: const Color(0xFFDC2F41),
+            surface: Colors.white,
+            background: Colors.grey[50]!,
+          ),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black87,
+            elevation: 0,
+            systemOverlayStyle: SystemUiOverlayStyle.dark,
+          ),
+        ),
         
-      },
+        // Start with splash screen
+        home: const SplashScreen(),
+        
+        // Define routes
+        routes: {
+          '/splash': (_) => const SplashScreen(),
+          '/login': (_) => const LoginPage(),
+          '/signup': (_) => const SignUpPage(),
+          '/forgot-password': (_) => const ForgotPasswordPage(),
+          '/reset-password': (_) => const ResetPasswordPage(),
+          '/email-verification': (_) => const EmailVerificationPage(email: ''),
+          '/email-confirmed': (_) => const EmailConfirmedPage(),
+          '/home': (_) => HomePage(currentUserId: _getCurrentUserId()),
+          // Add the new HomePage with provider integration
+          '/new-home': (_) => HomePage(currentUserId: _getCurrentUserId()),
+        },
+      ),
     );
+  }
+
+  // ============================================================
+  // Helper method to get current user ID
+  // ============================================================
+  int _getCurrentUserId() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      // Try to get user ID from your database
+      // For now, return a temporary ID or parse from user metadata
+      // You might want to fetch this from your users table based on user.id
+      return user.userMetadata?['user_id'] ?? 6; // Fallback to 6 as in original
+    }
+    return 6; // Default temporary ID when not logged in
   }
 }
 

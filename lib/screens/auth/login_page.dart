@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../supabase_service.dart';
-import '../home/dummy_home_page.dart';
 import '../admin/admin_home_page.dart';
 import 'email_verification_page.dart';
+import 'package:flutter_application_1/screens/HomePage.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -97,9 +97,10 @@ class _LoginPageState extends State<LoginPage> {
         print("✅ Profile created for user: ${user.id}");
       }
 
-      // 4) Get user role to determine navigation
+      // 4) Get user role and ID to determine navigation
       final userProfile = await _service.getUserByEmail(_emailController.text.trim());
       final userRole = userProfile?['role'] ?? 'Student';
+      final userId = userProfile?['user_id'] as int? ?? 0; // ✅ Get the user_id as int
 
       // 5) Success
       if (!mounted) return;
@@ -123,9 +124,10 @@ class _LoginPageState extends State<LoginPage> {
           MaterialPageRoute(builder: (_) => const AdminHomePage()),
         );
       } else {
+        // ✅ FIX: Pass the actual user ID as an integer
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const DummyHomePage()),
+          MaterialPageRoute(builder: (_) => HomePage(currentUserId: userId)),
         );
       }
 

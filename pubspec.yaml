@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  provider: ^6.1.5+1
   flutter_animate: ^4.5.2
   google_fonts: ^6.3.2
   supabase_flutter: ^2.10.3
@@ -16,14 +17,25 @@ dependencies:
   image_picker: ^1.0.7
   file_picker: ^8.0.0
   url_launcher: ^6.3.0
+  add_2_calendar: ^3.0.1
+  google_sign_in: ^6.2.1
+  googleapis: ^13.1.0
+  googleapis_auth: ^1.4.1
+  http: ^1.2.0
   
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  confetti: ^0.7.0
 
 flutter:
   uses-material-design: true
   assets:
     - assets/miu_logo.png
     - assets/newlogo.png
+    - assets/woman1.jpg
+    - assets/woman2.jpg
+    - assets/Codementum.png
+    - assets/profile.jpg
+    - assets/miu_logo1.png
