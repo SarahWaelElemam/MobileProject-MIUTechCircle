@@ -1646,134 +1646,458 @@ class _MyProfileState extends State<MyProfile>
       ),
     );
   }
+void _showAddProjectDialog() {
+  final nameController = TextEditingController();
+  final descriptionController = TextEditingController();
+  final skillsController = TextEditingController();
+  final urlController = TextEditingController();
+  
+  DateTime startDate = DateTime.now();
+  DateTime? endDate;
+  bool isCurrent = false;
 
-  void _showAddProjectDialog() {
-    final nameController = TextEditingController();
-    final descriptionController = TextEditingController();
-    final skillsController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Project'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Project Name *'),
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setModalState) => Container(
+        height: MediaQuery.of(context).size.height * 0.9,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 20,
+          right: 20,
+          top: 20,
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Description'),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: skillsController,
-                decoration: const InputDecoration(
-                  labelText: 'Skills (comma-separated)',
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Add project',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildModalLabel("Project name*"),
+                    _buildModalTextField(
+                      nameController,
+                      "Ex: Mobile App Development",
+                    ),
+                    
+                    _buildModalLabel("Description"),
+                    _buildModalTextField(
+                      descriptionController,
+                      "Describe what you did in this project",
+                      maxLines: 4,
+                    ),
+                    
+                    _buildModalLabel("Project URL (optional)"),
+                    _buildModalTextField(
+                      urlController,
+                      "Ex: https://github.com/username/project",
+                    ),
+                    
+                    _buildModalLabel("Skills used"),
+                    _buildModalTextField(
+                      skillsController,
+                      "Ex: Flutter, Firebase, REST API",
+                    ),
+                    
+                    const SizedBox(height: 12),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        "I am currently working on this project",
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      value: isCurrent,
+                      activeColor: const Color(0xFFE63946),
+                      onChanged: (val) =>
+                          setModalState(() => isCurrent = val ?? false),
+                    ),
+                    
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildModalLabel("Start date*"),
+                              InkWell(
+                                onTap: () async {
+                                  final picked = await showDatePicker(
+                                    context: context,
+                                    initialDate: startDate,
+                                    firstDate: DateTime(1950),
+                                    lastDate: DateTime.now(),
+                                  );
+                                  if (picked != null)
+                                    setModalState(() => startDate = picked);
+                                },
+                                child: _buildDateDisplay(
+                                  DateFormat('MMMM yyyy').format(startDate),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (!isCurrent) ...[
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildModalLabel("End date*"),
+                                InkWell(
+                                  onTap: () async {
+                                    final picked = await showDatePicker(
+                                      context: context,
+                                      initialDate: endDate ?? DateTime.now(),
+                                      firstDate: DateTime(1950),
+                                      lastDate: DateTime.now(),
+                                    );
+                                    if (picked != null)
+                                      setModalState(() => endDate = picked);
+                                  },
+                                  child: _buildDateDisplay(
+                                    endDate != null
+                                        ? DateFormat('MMMM yyyy').format(endDate!)
+                                        : "Select date",
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 30),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (nameController.text.isNotEmpty) {
-                await _addProject({
-                  'name': nameController.text,
-                  'description': descriptionController.text,
-                  'skills': skillsController.text,
-                  'start_date': DateTime.now().toIso8601String(),
-                  'end_date': DateTime.now().toIso8601String(),
-                });
-                if (mounted) Navigator.pop(context);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFDC143C),
             ),
-            child: const Text('Save', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditProjectDialog(Map<String, dynamic> project) {
-    final nameController = TextEditingController(text: project['name']);
-    final descriptionController = TextEditingController(
-      text: project['description'] ?? '',
-    );
-    final skillsController = TextEditingController(
-      text: project['skills'] ?? '',
-    );
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Project'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Project Name'),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    if (nameController.text.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please enter project name'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+                    
+                    final projectData = {
+                      'user_id': widget.userId,
+                      'name': nameController.text,
+                      'description': descriptionController.text,
+                      'project_url': urlController.text,
+                      'skills': skillsController.text,
+                      'start_date': startDate.toIso8601String(),
+                      'end_date': isCurrent ? null : endDate?.toIso8601String(),
+                      'is_current': isCurrent,
+                    };
+                    
+                    await _addProject(projectData);
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE63946),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text(
+                    "Save",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Description'),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: skillsController,
-                decoration: const InputDecoration(labelText: 'Skills'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () async {
-              await _deleteProject(project['project_id']);
-              if (mounted) Navigator.pop(context);
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              await _updateProject(project['project_id'], {
-                'name': nameController.text,
-                'description': descriptionController.text,
-                'skills': skillsController.text,
-              });
-              if (mounted) Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFDC143C),
             ),
-            child: const Text('Save', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+          ],
+        ),
       ),
-    );
-  }
+    ),
+  );
+}
 
+void _showEditProjectDialog(Map<String, dynamic> project) {
+  final nameController = TextEditingController(text: project['name']);
+  final descriptionController = TextEditingController(
+    text: project['description'] ?? '',
+  );
+  final skillsController = TextEditingController(
+    text: project['skills'] ?? '',
+  );
+  final urlController = TextEditingController(
+    text: project['project_url'] ?? '',
+  );
+  
+  DateTime startDate = project['start_date'] != null
+      ? DateTime.parse(project['start_date'])
+      : DateTime.now();
+  DateTime? endDate = project['end_date'] != null
+      ? DateTime.parse(project['end_date'])
+      : null;
+  bool isCurrent = project['is_current'] ?? false;
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setModalState) => Container(
+        height: MediaQuery.of(context).size.height * 0.9,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 20,
+          right: 20,
+          top: 20,
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Edit project',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildModalLabel("Project name*"),
+                    _buildModalTextField(nameController, ""),
+                    
+                    _buildModalLabel("Description"),
+                    _buildModalTextField(
+                      descriptionController,
+                      "",
+                      maxLines: 4,
+                    ),
+                    
+                    _buildModalLabel("Project URL (optional)"),
+                    _buildModalTextField(urlController, ""),
+                    
+                    _buildModalLabel("Skills used"),
+                    _buildModalTextField(skillsController, ""),
+                    
+                    const SizedBox(height: 12),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        "I am currently working on this project",
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      value: isCurrent,
+                      activeColor: const Color(0xFFE63946),
+                      onChanged: (val) =>
+                          setModalState(() => isCurrent = val ?? false),
+                    ),
+                    
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildModalLabel("Start date*"),
+                              InkWell(
+                                onTap: () async {
+                                  final picked = await showDatePicker(
+                                    context: context,
+                                    initialDate: startDate,
+                                    firstDate: DateTime(1950),
+                                    lastDate: DateTime.now(),
+                                  );
+                                  if (picked != null)
+                                    setModalState(() => startDate = picked);
+                                },
+                                child: _buildDateDisplay(
+                                  DateFormat('MMMM yyyy').format(startDate),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (!isCurrent) ...[
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildModalLabel("End date*"),
+                                InkWell(
+                                  onTap: () async {
+                                    final picked = await showDatePicker(
+                                      context: context,
+                                      initialDate: endDate ?? DateTime.now(),
+                                      firstDate: DateTime(1950),
+                                      lastDate: DateTime.now(),
+                                    );
+                                    if (picked != null)
+                                      setModalState(() => endDate = picked);
+                                  },
+                                  child: _buildDateDisplay(
+                                    endDate != null
+                                        ? DateFormat('MMMM yyyy').format(endDate!)
+                                        : "Select date",
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 30),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Delete Project?'),
+                            content: const Text(
+                              'Are you sure you want to delete this project?',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  await _deleteProject(project['project_id']);
+                                  Navigator.pop(context);
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                ),
+                                child: const Text(
+                                  'Delete',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.red),
+                        foregroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text("Delete"),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        if (nameController.text.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please enter project name'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        
+                        await _updateProject(project['project_id'], {
+                          'name': nameController.text,
+                          'description': descriptionController.text,
+                          'project_url': urlController.text,
+                          'skills': skillsController.text,
+                          'start_date': startDate.toIso8601String(),
+                          'end_date': isCurrent ? null : endDate?.toIso8601String(),
+                          'is_current': isCurrent,
+                        });
+                        Navigator.pop(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE63946),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text(
+                        "Save",
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
   void _showAddSkillDialog() {
     final skillController = TextEditingController();
     final endorsementController = TextEditingController();
@@ -2950,7 +3274,11 @@ void _showCreatePostDialog() {
                     _buildExperienceSection(),
                     const SizedBox(height: 8),
                   ],
-
+// Projects (ADD THIS RIGHT AFTER EXPERIENCE)
+if (projects.isNotEmpty) ...[
+  _buildProjectsSection(),
+  const SizedBox(height: 8),
+],
                   // Licenses
                   if (licenses.isNotEmpty) ...[
                     _buildLicensesSection(),
@@ -4132,58 +4460,166 @@ void _showCreatePostDialog() {
       ),
     );
   }
-
-  Widget _buildProjectItem(Map<String, dynamic> project) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: InkWell(
-        onTap: () => _showEditProjectDialog(project),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              project['name'] ?? '',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+Widget _buildProjectItem(Map<String, dynamic> project) {
+  final hasUrl = project['project_url'] != null && 
+                 project['project_url'].toString().isNotEmpty;
+  
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 16),
+    child: InkWell(
+      onTap: () => _showEditProjectDialog(project),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE63946).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
             ),
-            if (project['start_date'] != null)
-              Text(
-                '${_formatDate(project['start_date'])} - ${_formatDate(project['end_date'])}',
-                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-              ),
-            if (project['description'] != null &&
-                project['description'].toString().isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  project['description'],
-                  style: TextStyle(fontSize: 13, color: Colors.grey[700]),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            if (project['skills'] != null &&
-                project['skills'].toString().isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(
+            child: const Icon(
+              Icons.folder_outlined,
+              color: Color(0xFFE63946),
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    const Icon(Icons.star_border, size: 14),
-                    const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        project['skills'],
-                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                        project['name'] ?? '',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
+                    if (hasUrl)
+                      GestureDetector(
+                        onTap: () => _openFile(project['project_url']),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Icon(
+                            Icons.open_in_new,
+                            size: 16,
+                            color: Color(0xFFE63946),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
-              ),
-          ],
-        ),
+                const SizedBox(height: 4),
+                if (project['start_date'] != null)
+                  Row(
+                    children: [
+                      Text(
+                        '${DateFormat('MMM yyyy').format(DateTime.parse(project['start_date']))} - ',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      Text(
+                        project['is_current'] == true
+                            ? 'Present'
+                            : project['end_date'] != null
+                                ? DateFormat('MMM yyyy').format(
+                                    DateTime.parse(project['end_date']),
+                                  )
+                                : 'Present',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      if (project['is_current'] == true) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'In Progress',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                if (project['description'] != null &&
+                    project['description'].toString().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      project['description'],
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[700],
+                        height: 1.4,
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                if (project['skills'] != null &&
+                    project['skills'].toString().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: project['skills']
+                          .toString()
+                          .split(',')
+                          .map((skill) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: Text(
+                                  skill.trim(),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[700],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
-    );
-  }
-
+    ),
+  );
+}
   Widget _buildSkillsSection() {
     return Container(
       color: Colors.white,
