@@ -180,7 +180,6 @@ class MyProfile extends StatefulWidget {
 class _MyProfileState extends State<MyProfile>
     with SingleTickerProviderStateMixin {
   final supabase = Supabase.instance.client;
-  List<Map<String, dynamic>> userAnnouncements = [];
 
   // User basic info
   String? fullName;
@@ -193,6 +192,9 @@ class _MyProfileState extends State<MyProfile>
   int followers = 0;
   int connections = 0;
   bool isLoading = true;
+  bool _showAllPosts = false;
+bool _showAllComments = false;
+bool _showAllReposts = false;
 
   // Profile sections data
   List<Map<String, dynamic>> experiences = [];
@@ -213,15 +215,21 @@ class _MyProfileState extends State<MyProfile>
   @override
   void initState() {
     super.initState();
-    _activityTabController = TabController(
-      length: 4,
-      vsync: this,
-    ); // Changed from 3 to 4
-    _activityTabController.addListener(() {
-      if (_activityTabController.indexIsChanging) {
-        setState(() => _selectedActivityTab = _activityTabController.index);
-      }
+   _activityTabController = TabController(
+  length: 3,
+  vsync: this,
+);
+  _activityTabController.addListener(() {
+  if (_activityTabController.indexIsChanging) {
+    setState(() {
+      _selectedActivityTab = _activityTabController.index;
+      // Reset "show all" states when switching tabs
+      _showAllPosts = false;
+      _showAllComments = false;
+      _showAllReposts = false;
     });
+  }
+});
     _loadCompleteProfileData();
   }
 
@@ -235,17 +243,7 @@ class _MyProfileState extends State<MyProfile>
   // LOAD ALL PROFILE DATA (ROBUST VERSION)
   // ============================================
   // Add this loading method
-  Future<void> _loadUserAnnouncements() async {
-    final data = await supabase
-        .from('announcement')
-        .select('*')
-        .eq('auth_id', widget.userId)
-        .order('created_at', ascending: false);
 
-    if (mounted) {
-      setState(() => userAnnouncements = List<Map<String, dynamic>>.from(data));
-    }
-  }
 
   Future<void> _openFile(String? url) async {
     if (url == null || url.isEmpty) {
@@ -286,18 +284,15 @@ class _MyProfileState extends State<MyProfile>
       }
 
       // 3. Load Content (Parallel)
-      await Future.wait([
-        _loadExperiences().catchError((e) => print("Exp error: $e")),
-        _loadLicenses().catchError((e) => print("License error: $e")),
-        _loadProjects().catchError((e) => print("Project error: $e")),
-        _loadSkills().catchError((e) => print("Skill error: $e")),
-        _loadUserPosts().catchError((e) => print("Post error: $e")),
-        _loadUserComments().catchError((e) => print("Comment error: $e")),
-        _loadUserReposts().catchError((e) => print("Repost error: $e")),
-        _loadUserAnnouncements().catchError(
-          (e) => print("Announcement error: $e"),
-        ), // ADD THIS
-      ]);
+    await Future.wait([
+  _loadExperiences().catchError((e) => print("Exp error: $e")),
+  _loadLicenses().catchError((e) => print("License error: $e")),
+  _loadProjects().catchError((e) => print("Project error: $e")),
+  _loadSkills().catchError((e) => print("Skill error: $e")),
+  _loadUserPosts().catchError((e) => print("Post error: $e")),
+  _loadUserComments().catchError((e) => print("Comment error: $e")),
+  _loadUserReposts().catchError((e) => print("Repost error: $e")),
+]);
     } catch (e) {
       print("General loading error: $e");
       if (mounted) _showError("Some profile data failed to load");
@@ -2206,14 +2201,18 @@ void _showCreatePostDialog() {
         builder: (context) => CreatePostModal(userId: widget.userId),
       ),
     )
-    .then((result) {
-      // Reload ALL data including announcements
+    .then((result) async {
+      // ✅ Reload ALL profile data after post creation
       if (result != null && result['success'] == true) {
-        _loadUserPosts();
-        _loadUserAnnouncements(); // ✅ Add this if missing
+        await _loadCompleteProfileData();
+        
+        if (mounted) {
+          _showSuccess('Post created successfully!');
+        }
       }
     });
 }
+ 
   void _showEditPostDialog(Map<String, dynamic> post) {
     final titleController = TextEditingController(text: post['title']);
     final contentController = TextEditingController(text: post['content']);
@@ -3269,33 +3268,29 @@ void _showCreatePostDialog() {
                     const SizedBox(height: 8),
                   ],
 
-                  // Experience
-                  if (experiences.isNotEmpty) ...[
-                    _buildExperienceSection(),
-                    const SizedBox(height: 8),
-                  ],
-// Projects (ADD THIS RIGHT AFTER EXPERIENCE)
+                 // Experience
+if (experiences.isNotEmpty) ...[
+  _buildExperienceSection(),
+  const SizedBox(height: 8),
+],
+
+// Projects (AFTER EXPERIENCE)
 if (projects.isNotEmpty) ...[
   _buildProjectsSection(),
   const SizedBox(height: 8),
 ],
-                  // Licenses
-                  if (licenses.isNotEmpty) ...[
-                    _buildLicensesSection(),
-                    const SizedBox(height: 8),
-                  ],
 
-                  // Projects
-                  if (projects.isNotEmpty) ...[
-                    _buildProjectsSection(),
-                    const SizedBox(height: 8),
-                  ],
+// Licenses
+if (licenses.isNotEmpty) ...[
+  _buildLicensesSection(),
+  const SizedBox(height: 8),
+],
 
-                  // Skills
-                  if (skills.isNotEmpty) ...[
-                    _buildSkillsSection(),
-                    const SizedBox(height: 8),
-                  ],
+// Skills
+if (skills.isNotEmpty) ...[
+  _buildSkillsSection(),
+  const SizedBox(height: 8),
+],
 
                   const SizedBox(height: 40),
                 ],
@@ -3573,143 +3568,190 @@ if (projects.isNotEmpty) ...[
     );
   }
 
-  Widget _buildActivitySection() {
-    // Calculate total activities including announcements
-    final totalActivities =
-        userPosts.length +
-        userComments.length +
-        userReposts.length +
-        userAnnouncements.length;
+ Widget _buildActivitySection() {
+  // Calculate total activities including announcements
+final totalActivities =
+    userPosts.length +
+    userComments.length +
+    userReposts.length;
 
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Activity',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    '$totalActivities activities',
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                  ),
-                ],
+  return Container(
+    color: Colors.white,
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Activity',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  '$totalActivities activities',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            ElevatedButton(
+              onPressed: _showCreatePostDialog,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFFDC143C),
+                side: const BorderSide(color: Color(0xFFDC143C)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
               ),
-              ElevatedButton(
-                onPressed: _showCreatePostDialog,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFFDC143C),
-                  side: const BorderSide(color: Color(0xFFDC143C)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
-                child: const Text('Create a post'),
+              child: const Text('Create a post'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+       TabBar(
+  controller: _activityTabController,
+  labelColor: const Color(0xFFDC143C),
+  unselectedLabelColor: Colors.grey[600],
+  indicatorColor: const Color(0xFFDC143C),
+  isScrollable: true,
+  tabs: [
+    Tab(text: 'Posts (${userPosts.length})'),
+    Tab(text: 'Comments (${userComments.length})'),
+    Tab(text: 'Reposts (${userReposts.length})'),
+  ],
+),
+
+const SizedBox(height: 16),
+
+// Tab 0: Posts
+if (_selectedActivityTab == 0) ...[
+  if (userPosts.isEmpty)
+    Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Text(
+          'No posts yet',
+          style: TextStyle(color: Colors.grey[600]),
+        ),
+      ),
+    )
+  else ...[
+    // Show only the most recent post, or all if expanded
+    ...(_showAllPosts ? userPosts : userPosts.take(1))
+        .map((post) => _buildPostCard(post)),
+    
+    // Show "View All" button if there's more than 1 post
+    if (userPosts.length > 1)
+      Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: TextButton(
+            onPressed: () {
+              setState(() => _showAllPosts = !_showAllPosts);
+            },
+            child: Text(
+              _showAllPosts 
+                  ? 'Show Less' 
+                  : 'View All ${userPosts.length} Posts',
+              style: const TextStyle(
+                color: Color(0xFFDC143C),
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 16),
+        ),
+      ),
+  ],
+],
 
-          TabBar(
-            controller: _activityTabController,
-            labelColor: const Color(0xFFDC143C),
-            unselectedLabelColor: Colors.grey[600],
-            indicatorColor: const Color(0xFFDC143C),
-            isScrollable: true,
-            tabs: [
-              Tab(text: 'Posts (${userPosts.length})'),
-              Tab(text: 'Announcement (${userAnnouncements.length})'),
-              Tab(text: 'Comments (${userComments.length})'),
-              Tab(text: 'Reposts (${userReposts.length})'),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // Tab 0: Posts
-          if (_selectedActivityTab == 0) ...[
-            if (userPosts.isEmpty)
+// Tab 1: Comments (was Tab 2)
+if (_selectedActivityTab == 1) ...[
+          if (userComments.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  'No comments yet',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            )
+          else ...[
+            ...(_showAllComments ? userComments : userComments.take(1))
+                .map((comment) => _buildCommentCard(comment)),
+            
+            if (userComments.length > 1)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Text(
-                    'No posts yet',
-                    style: TextStyle(color: Colors.grey[600]),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: TextButton(
+                    onPressed: () {
+                      setState(() => _showAllComments = !_showAllComments);
+                    },
+                    child: Text(
+                      _showAllComments 
+                          ? 'Show Less' 
+                          : 'View All ${userComments.length} Comments',
+                      style: const TextStyle(
+                        color: Color(0xFFDC143C),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
                 ),
-              )
-            else
-              ...userPosts.take(5).map((post) => _buildPostCard(post)),
-          ],
-
-          // Tab 1: Announcements
-          if (_selectedActivityTab == 1) ...[
-            if (userAnnouncements.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Text(
-                    'No announcements yet',
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                ),
-              )
-            else
-              ...userAnnouncements
-                  .take(5)
-                  .map(
-                    (announcement) =>
-                        AnnouncementCard(announcement: announcement),
-                  ),
-          ],
-
-          // Tab 2: Comments
-          if (_selectedActivityTab == 2) ...[
-            if (userComments.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Text(
-                    'No comments yet',
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                ),
-              )
-            else
-              ...userComments
-                  .take(5)
-                  .map((comment) => _buildCommentCard(comment)),
-          ],
-
-          // Tab 3: Reposts
-          if (_selectedActivityTab == 3) ...[
-            if (userReposts.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Text(
-                    'No reposts yet',
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                ),
-              )
-            else
-              ...userReposts.take(5).map((repost) => _buildRepostCard(repost)),
+              ),
           ],
         ],
-      ),
-    );
-  }
 
+// Tab 2: Reposts (was Tab 3)
+if (_selectedActivityTab == 2) ...[          if (userReposts.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  'No reposts yet',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            )
+          else ...[
+            ...(_showAllReposts ? userReposts : userReposts.take(1))
+                .map((repost) => _buildRepostCard(repost)),
+            
+            if (userReposts.length > 1)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: TextButton(
+                    onPressed: () {
+                      setState(() => _showAllReposts = !_showAllReposts);
+                    },
+                    child: Text(
+                      _showAllReposts 
+                          ? 'Show Less' 
+                          : 'View All ${userReposts.length} Reposts',
+                      style: const TextStyle(
+                        color: Color(0xFFDC143C),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ],
+    ),
+  );
+}
   Widget _buildPostCard(Map<String, dynamic> post) {
     return StatefulBuilder(
       builder: (context, setCardState) {
