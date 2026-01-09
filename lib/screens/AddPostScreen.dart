@@ -25,18 +25,18 @@ class _AddPostScreenState extends State<AddPostScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showCategoryModal();
+      _showCreatePostModal();
     });
   }
 
-  void _showCategoryModal() {
+  void _showCreatePostModal() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       isDismissible: false,
       builder: (context) =>
-          CategorySelectionModal(userId: widget.currentUserId ?? 6),
+          CreatePostModal(userId: widget.currentUserId ?? 6),
     ).then((result) {
       if (result == null) {
         Navigator.pop(context);
@@ -67,31 +67,43 @@ class _AddPostScreenState extends State<AddPostScreen> {
   }
 }
 
-class CategorySelectionModal extends StatefulWidget {
-  final int userId;
+// ==========================================
+// CREATE POST MODAL (EXACT MATCH FROM MYPROFILE)
+// ==========================================
 
-  const CategorySelectionModal({Key? key, required this.userId})
+class CreatePostModal extends StatefulWidget {
+  final int userId;
+  final Map<String, dynamic>? editPostData; // Data passed when in edit mode
+
+  const CreatePostModal({Key? key, required this.userId, this.editPostData})
     : super(key: key);
 
   @override
-  State<CategorySelectionModal> createState() => _CategorySelectionModalState();
+  State<CreatePostModal> createState() => _CreatePostModalState();
 }
 
-class _CategorySelectionModalState extends State<CategorySelectionModal>
+class _CreatePostModalState extends State<CreatePostModal>
     with SingleTickerProviderStateMixin {
-  Map<String, dynamic>? _selectedCategory;
-  List<Map<String, dynamic>> _categories = [];
-  bool _showCreatePost = false;
-  bool _isLoadingCategories = true;
+  final supabase = Supabase.instance.client;
   late AnimationController _animationController;
   late Animation<double> _heightAnimation;
-  String _postType = 'Post';
+
+  // --- STATE VARIABLES ---
+  bool _showCreatePost = false;
+  bool _isLoadingCategories = true;
+  bool _isUploading = false;
+
+  // --- POST DATA ---
+  List<Map<String, dynamic>> _categories = [];
+  Map<String, dynamic>? _selectedCategory;
   final TextEditingController _postController = TextEditingController();
+
+  String _postType = 'Post';
   DateTime? _selectedDateTime;
-  final ImagePicker _imagePicker = ImagePicker();
   List<XFile> _selectedImages = [];
   List<PlatformFile> _selectedFiles = [];
-  bool _isUploading = false;
+
+  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -103,7 +115,26 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
     _heightAnimation = Tween<double>(begin: 0.6, end: 0.95).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
+
     _loadCategories();
+
+    // Check if we are in EDIT mode
+    if (widget.editPostData != null) {
+      _postController.text = widget.editPostData!['content'] ?? '';
+      _showCreatePost = true;
+      _animationController.value = 1.0;
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -120,15 +151,15 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
           .select('category_id, name')
           .order('name');
 
-      setState(() {
-        _categories = List<Map<String, dynamic>>.from(response);
-        _isLoadingCategories = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingCategories = false;
-      });
       if (mounted) {
+        setState(() {
+          _categories = List<Map<String, dynamic>>.from(response);
+          _isLoadingCategories = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingCategories = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error loading categories: $e'),
@@ -136,76 +167,6 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
           ),
         );
       }
-    }
-  }
-
-  bool _canShowPostTypeDropdown() {
-    return _selectedCategory != null &&
-        !['Internships', 'Jobs'].contains(_selectedCategory!['name']);
-  }
-
-  void _onCategorySelected(Map<String, dynamic> category) {
-    setState(() {
-      _selectedCategory = category;
-      _showCreatePost = true;
-      _postType = 'Post';
-      _selectedDateTime = null;
-      _selectedImages.clear();
-      _selectedFiles.clear();
-    });
-    _animationController.forward();
-  }
-
-  void _goBackToCategories() {
-    _animationController.reverse().then((_) {
-      setState(() {
-        _showCreatePost = false;
-        _selectedCategory = null;
-        _postController.clear();
-        _postType = 'Post';
-        _selectedDateTime = null;
-        _selectedImages.clear();
-        _selectedFiles.clear();
-      });
-    });
-  }
-
-  Future<String?> _uploadFile(XFile file, String folder) async {
-    try {
-      final bytes = await file.readAsBytes();
-      final fileExt = file.name.split('.').last;
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExt';
-      final filePath = '$folder/$fileName';
-
-      await supabase.storage
-          .from('Posts')
-          .uploadBinary(
-            filePath,
-            bytes,
-            fileOptions: FileOptions(
-              contentType: 'image/$fileExt',
-              upsert: false,
-            ),
-          );
-
-      final publicUrl = supabase.storage.from('Posts').getPublicUrl(filePath);
-      return publicUrl;
-    } catch (e) {
-      print('Error uploading file: $e');
-      if (e.toString().contains('Bucket not found')) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Storage bucket not configured. Post will be created without images.',
-              ),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-      return null;
     }
   }
 
@@ -241,18 +202,15 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
         // ========================================
         final announcementData = {
           'auth_id': userId,
-          'date': _selectedDateTime!.toIso8601String().split(
-            'T',
-          )[0], // YYYY-MM-DD
-          'time':
-              '${_selectedDateTime!.hour.toString().padLeft(2, '0')}:${_selectedDateTime!.minute.toString().padLeft(2, '0')}:00', // HH:MM:SS
+          'date': _selectedDateTime!.toIso8601String().split('T')[0],
+          'time': '${_selectedDateTime!.hour.toString().padLeft(2, '0')}:${_selectedDateTime!.minute.toString().padLeft(2, '0')}:00',
           'title': _selectedCategory!['name'],
           'description': _postController.text.trim(),
           'category_id': _selectedCategory!['category_id'],
           'created_at': DateTime.now().toIso8601String(),
         };
 
-        await supabase.from('announcements').insert(announcementData);
+        await supabase.from('announcement').insert(announcementData);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -349,6 +307,121 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
     }
   }
 
+  bool _canShowPostTypeDropdown() {
+    return _selectedCategory != null &&
+        !['Internships', 'Jobs', 'News'].contains(_selectedCategory!['name']);
+  }
+
+  void _onCategorySelected(Map<String, dynamic> category) {
+    setState(() {
+      _selectedCategory = category;
+      _showCreatePost = true;
+      _postType = 'Post';
+      _selectedDateTime = null;
+      _selectedImages.clear();
+      _selectedFiles.clear();
+    });
+    _animationController.forward();
+  }
+
+  void _goBackToCategories() {
+    _animationController.reverse().then((_) {
+      setState(() {
+        _showCreatePost = false;
+        _selectedCategory = null;
+        _postController.clear();
+        _postType = 'Post';
+        _selectedDateTime = null;
+        _selectedImages.clear();
+        _selectedFiles.clear();
+      });
+    });
+  }
+
+  Future<String?> _uploadFile(XFile file, String folder) async {
+    try {
+      final bytes = await file.readAsBytes();
+      final fileExt = file.name.split('.').last;
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+      final filePath = '$folder/$fileName';
+
+      await supabase.storage
+          .from('Posts')
+          .uploadBinary(
+            filePath,
+            bytes,
+            fileOptions: FileOptions(
+              contentType: 'image/$fileExt',
+              upsert: false,
+            ),
+          );
+
+      final publicUrl = supabase.storage.from('Posts').getPublicUrl(filePath);
+      return publicUrl;
+    } catch (e) {
+      print('Error uploading file: $e');
+      if (e.toString().contains('Bucket not found') && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Storage bucket not configured. Post will be created without images.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<void> _handlePost() async {
+    if (_postController.text.trim().isEmpty) return;
+    setState(() => _isUploading = true);
+
+    try {
+      String mediaUrl = widget.editPostData?['media_url'] ?? '';
+
+      // ATTACHMENT FIX: Only upload new media if creating, lock if editing
+      if (widget.editPostData == null && _selectedImages.isNotEmpty) {
+        final image = _selectedImages.first;
+        final bytes = await image.readAsBytes();
+        final fileName = 'post_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final filePath = 'post_images/$fileName'; // Consistent path
+
+        await supabase.storage.from('Posts').uploadBinary(filePath, bytes);
+        mediaUrl = supabase.storage.from('Posts').getPublicUrl(filePath);
+      }
+
+      if (widget.editPostData != null) {
+        // EDIT MODE: Only update text
+        await supabase
+            .from('posts')
+            .update({
+              'content': _postController.text.trim(),
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('post_id', widget.editPostData!['post_id']);
+      } else {
+        // CREATE MODE: Insert full record
+        await supabase.from('posts').insert({
+          'author_id': widget.userId,
+          'content': _postController.text.trim(),
+          'media_url': mediaUrl,
+          'category_id': _selectedCategory!['category_id'],
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+      Navigator.pop(context, {'success': true});
+    } catch (e) {
+      print("Post error: $e");
+    } finally {
+      setState(() => _isUploading = false);
+    }
+  }
+
+  // --- File/Image Selection Helpers ---
+
   Future<void> _pickImages() async {
     try {
       final List<XFile> images = await _imagePicker.pickMultiImage();
@@ -356,25 +429,11 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
         setState(() {
           _selectedImages.addAll(images);
         });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${images.length} image(s) selected'),
-              backgroundColor: const Color(0xFFE63946),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to pick images: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed: $e')));
     }
   }
 
@@ -391,38 +450,20 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
         setState(() {
           _selectedFiles.addAll(result.files);
         });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${result.files.length} file(s) selected'),
-              backgroundColor: const Color(0xFFE63946),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to pick files: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed: $e')));
     }
   }
 
   void _removeImage(int index) {
-    setState(() {
-      _selectedImages.removeAt(index);
-    });
+    setState(() => _selectedImages.removeAt(index));
   }
 
   void _removeFile(int index) {
-    setState(() {
-      _selectedFiles.removeAt(index);
-    });
+    setState(() => _selectedFiles.removeAt(index));
   }
 
   IconData _getFileIcon(String fileName) {
@@ -447,13 +488,12 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
   }
 
   String _formatFileSize(int bytes) {
-    if (bytes < 1024) {
+    if (bytes < 1024)
       return '$bytes B';
-    } else if (bytes < 1024 * 1024) {
+    else if (bytes < 1024 * 1024)
       return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    } else {
+    else
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
   }
 
   Future<void> _selectDateTime() async {
@@ -476,9 +516,7 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
       },
     );
 
-    if (pickedDate != null) {
-      if (!mounted) return;
-
+    if (pickedDate != null && mounted) {
       final TimeOfDay? pickedTime = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.now(),
@@ -516,12 +554,12 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
           return;
         }
 
-        setState(() {
-          _selectedDateTime = selectedDateTime;
-        });
+        setState(() => _selectedDateTime = selectedDateTime);
       }
     }
   }
+
+  // --- UI Builders ---
 
   @override
   Widget build(BuildContext context) {
@@ -732,167 +770,197 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
                     bottom: BorderSide(color: Colors.grey[200]!, width: 1),
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: _goBackToCategories,
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          color: Colors.black87,
+                          size: 24,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      const SizedBox(width: 16),
+                      const Text(
+                        'Create Post',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                  ElevatedButton(
+                    onPressed: _isUploading ? null : _createPost,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE63946),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: _isUploading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Upload',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Body
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        IconButton(
-                          onPressed: _goBackToCategories,
-                          icon: const Icon(
-                            Icons.arrow_back,
-                            color: Colors.black87,
-                            size: 24,
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: Colors.grey[300],
+                          child: Icon(
+                            Icons.person,
+                            size: 30,
+                            color: Colors.grey[600],
                           ),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
                         ),
-                        const SizedBox(width: 16),
-                        const Text(
-                          'Create Post',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: TextField(
+                            controller: _postController,
+                            maxLines: null,
+                            minLines: 4,
+                            decoration: InputDecoration(
+                              hintText: "What's new?",
+                              hintStyle: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: 17,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.only(top: 8),
+                            ),
+                            style: const TextStyle(
+                              fontSize: 17,
+                              color: Colors.black87,
+                              height: 1.4,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                    ElevatedButton(
-                      onPressed: _isUploading ? null : _createPost,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE63946),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: _isUploading
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : const Text(
-                              'Upload',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            radius: 28,
-                            backgroundColor: Colors.grey[300],
-                            child: Icon(
-                              Icons.person,
-                              size: 30,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: TextField(
-                              controller: _postController,
-                              maxLines: null,
-                              minLines: 4,
-                              decoration: InputDecoration(
-                                hintText: "What's new?",
-                                hintStyle: TextStyle(
-                                  color: Colors.grey[400],
-                                  fontSize: 17,
-                                ),
-                                border: InputBorder.none,
-                              ),
-                              style: const TextStyle(
-                                fontSize: 17,
-                                color: Colors.black87,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
 
-                      if (_selectedImages.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: _selectedImages.asMap().entries.map((
-                            entry,
-                          ) {
-                            return FutureBuilder<Uint8List>(
-                              future: entry.value.readAsBytes(),
-                              builder: (context, snapshot) {
-                                if (!snapshot.hasData)
-                                  return Container(
-                                    width: 100,
-                                    height: 100,
-                                    color: Colors.grey[100],
-                                  );
-                                return Stack(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.memory(
-                                        snapshot.data!,
-                                        width: 100,
-                                        height: 100,
-                                        fit: BoxFit.cover,
-                                      ),
+                    // Image Previews
+                    if (_selectedImages.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _selectedImages.asMap().entries.map((entry) {
+                          return FutureBuilder<Uint8List>(
+                            future: entry.value.readAsBytes(),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState ==
+                                  ConnectionState.waiting) {
+                                return Container(
+                                  width: 100,
+                                  height: 100,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Center(
+                                    child: CircularProgressIndicator(
+                                      color: Color(0xFFDC143C),
                                     ),
-                                    Positioned(
-                                      top: 4,
-                                      right: 4,
-                                      child: GestureDetector(
-                                        onTap: () => _removeImage(entry.key),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.red,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.close,
-                                            color: Colors.white,
-                                            size: 16,
-                                          ),
+                                  ),
+                                );
+                              }
+
+                              if (snapshot.hasError || !snapshot.hasData) {
+                                return Container(
+                                  width: 100,
+                                  height: 100,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.error),
+                                );
+                              }
+
+                              return Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.memory(
+                                      snapshot.data!,
+                                      width: 100,
+                                      height: 100,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: GestureDetector(
+                                      onTap: () => _removeImage(entry.key),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.close,
+                                          color: Colors.white,
+                                          size: 16,
                                         ),
                                       ),
                                     ),
-                                  ],
-                                );
-                              },
-                            );
-                          }).toList(),
-                        ),
-                      ],
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
 
-                      if (_selectedFiles.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        ..._selectedFiles.asMap().entries.map((entry) {
+                    // File Previews
+                    if (_selectedFiles.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Column(
+                        children: _selectedFiles.asMap().entries.map((entry) {
                           final file = entry.value;
+                          final fileName = file.name;
+                          final fileSize = file.bytes?.length ?? file.size ?? 0;
                           return Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.all(12),
@@ -904,7 +972,7 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
                             child: Row(
                               children: [
                                 Icon(
-                                  _getFileIcon(file.name),
+                                  _getFileIcon(fileName),
                                   color: const Color(0xFFE63946),
                                   size: 24,
                                 ),
@@ -915,129 +983,305 @@ class _CategorySelectionModalState extends State<CategorySelectionModal>
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        file.name,
+                                        fileName,
                                         style: const TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w500,
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      Text(
-                                        _formatFileSize(
-                                          file.bytes?.length ?? file.size ?? 0,
+                                      if (fileSize > 0)
+                                        Text(
+                                          _formatFileSize(fileSize),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
+                                          ),
                                         ),
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.close,
-                                    color: Colors.red,
-                                    size: 20,
+                                GestureDetector(
+                                  onTap: () => _removeFile(entry.key),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Icon(
+                                      Icons.close,
+                                      color: Colors.red,
+                                      size: 18,
+                                    ),
                                   ),
-                                  onPressed: () => _removeFile(entry.key),
                                 ),
                               ],
                             ),
                           );
                         }).toList(),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border(
-                    top: BorderSide(color: Colors.grey[200]!, width: 1),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      child: Text(
-                        _selectedCategory?['name'] ?? 'Category',
-                        style: TextStyle(
-                          color: Colors.grey[700],
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    const Spacer(),
-                    if (_postType != 'Announcement') ...[
-                      IconButton(
-                        onPressed: _pickImages,
-                        icon: Icon(
-                          Icons.image_outlined,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: _pickFiles,
-                        icon: Icon(Icons.attach_file, color: Colors.grey[600]),
-                      ),
-                    ] else ...[
-                      TextButton.icon(
-                        onPressed: _selectDateTime,
-                        icon: const Icon(Icons.calendar_today, size: 18),
-                        label: Text(
-                          _selectedDateTime == null ? "Set Time" : "Scheduled",
-                        ),
                       ),
                     ],
                   ],
                 ),
               ),
-            ],
-          ),
-          if (_isUploading)
+            ),
+
+            // Bottom Controls
             Container(
-              color: Colors.black.withOpacity(0.3),
-              child: const Center(
-                child: Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(color: Color(0xFFE63946)),
-                        SizedBox(height: 16),
-                        Text(
-                          'Uploading post...',
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  top: BorderSide(color: Colors.grey[200]!, width: 1),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      // Selected Category Pill
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.grey[300]!),
+                        ),
+                        child: Text(
+                          _selectedCategory?['name'] ?? 'Category',
                           style: TextStyle(
-                            fontSize: 16,
+                            color: Colors.grey[700],
+                            fontSize: 13,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
+                      ),
+                      const SizedBox(width: 10),
+
+                      // Post Type Pill (Dropdown or Static)
+                      if (_canShowPostTypeDropdown())
+                        GestureDetector(
+                          onTap: () {
+                            showModalBottomSheet(
+                              context: context,
+                              backgroundColor: Colors.white,
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(20),
+                                ),
+                              ),
+                              builder: (context) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 20,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ListTile(
+                                      title: const Text(
+                                        'Post',
+                                        style: TextStyle(fontSize: 16),
+                                      ),
+                                      trailing: _postType == 'Post'
+                                          ? const Icon(
+                                              Icons.check,
+                                              color: Color(0xFFE63946),
+                                            )
+                                          : null,
+                                      onTap: () {
+                                        setState(() {
+                                          _postType = 'Post';
+                                          _selectedDateTime = null;
+                                        });
+                                        Navigator.pop(context);
+                                      },
+                                    ),
+                                    ListTile(
+                                      title: const Text(
+                                        'Announcement',
+                                        style: TextStyle(fontSize: 16),
+                                      ),
+                                      trailing: _postType == 'Announcement'
+                                          ? const Icon(
+                                              Icons.check,
+                                              color: Color(0xFFE63946),
+                                            )
+                                          : null,
+                                      onTap: () {
+                                        setState(() {
+                                          _postType = 'Announcement';
+                                          _selectedImages.clear();
+                                          _selectedFiles.clear();
+                                        });
+                                        Navigator.pop(context);
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Attachments cleared. Announcements don\'t support media.',
+                                            ),
+                                            backgroundColor: Color(0xFFE63946),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE63946),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _postType,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.arrow_drop_down,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE63946),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text(
+                            'Post',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+
+                      const Spacer(),
+
+                      // Attachment Icons
+                      if (_postType == 'Announcement') ...[
+                        GestureDetector(
+                          onTap: _selectDateTime,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _selectedDateTime != null
+                                  ? const Color(0xFFE63946).withOpacity(0.1)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.calendar_today,
+                                  color: _selectedDateTime != null
+                                      ? const Color(0xFFE63946)
+                                      : Colors.grey[600],
+                                  size: 22,
+                                ),
+                                if (_selectedDateTime != null) ...[
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${_selectedDateTime!.day}/${_selectedDateTime!.month} ${_selectedDateTime!.hour}:${_selectedDateTime!.minute.toString().padLeft(2, '0')}',
+                                    style: const TextStyle(
+                                      color: Color(0xFFE63946),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        IconButton(
+                          onPressed: _pickImages,
+                          icon: Icon(
+                            Icons.image_outlined,
+                            color: Colors.grey[600],
+                            size: 24,
+                          ),
+                          tooltip: 'Add images',
+                        ),
+                        IconButton(
+                          onPressed: _pickFiles,
+                          icon: Icon(
+                            Icons.attach_file,
+                            color: Colors.grey[600],
+                            size: 24,
+                          ),
+                          tooltip: 'Attach files',
+                        ),
                       ],
-                    ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        if (_isUploading)
+          Container(
+            color: Colors.black.withOpacity(0.3),
+            child: const Center(
+              child: Card(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(color: Color(0xFFE63946)),
+                      SizedBox(height: 16),
+                      Text(
+                        'Uploading post...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
-        ],
-      ),
-    );
+          ),
+      ],
+    ));
   }
 }
 
