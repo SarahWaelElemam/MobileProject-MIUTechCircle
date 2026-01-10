@@ -1,1 +1,3 @@
-# Mobile-Project--MIU-TechCircle
+# miu_tech
+
+A new Flutter project.

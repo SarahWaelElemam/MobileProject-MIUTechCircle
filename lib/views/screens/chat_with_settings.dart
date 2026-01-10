@@ -4,10 +4,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // Get Supabase client
 final supabase = Supabase.instance.client;
 
-// MOCKED USER ID - Currently set to your test user
-const String MOCKED_USER_ID = '11111111-1111-1111-1111-111111111111';
+// CURRENT USER CONFIGURATION
+// TODO: Replace this with actual authentication
+// Set this to YOUR user ID from the users table (the integer in the first column)
+// Based on your database: 2 (Sarah), 4 (Mostafa), 6 (Hana), 8 (Ismail), 25 (ahmed)
+const int CURRENT_USER_ID = 2; // Change this to your actual user ID
+
+// Helper to get current user ID as string for queries
+String get currentUserIdString => CURRENT_USER_ID.toString();
 
 // --------------------- Helper Functions ---------------------
+
 /// Safely builds a CircleAvatar with initials or network image
 CircleAvatar buildAvatarHelper(String name, String? avatarUrl, double radius) {
   if (avatarUrl != null && avatarUrl.isNotEmpty && Uri.tryParse(avatarUrl)?.hasAbsolutePath == true) {
@@ -20,7 +27,7 @@ CircleAvatar buildAvatarHelper(String name, String? avatarUrl, double radius) {
       },
     );
   }
-  
+
   // Generate initials safely
   String initials = '';
   try {
@@ -30,21 +37,21 @@ CircleAvatar buildAvatarHelper(String name, String? avatarUrl, double radius) {
     } else if (parts.length == 1) {
       initials = parts[0].substring(0, 1).toUpperCase();
     } else {
-      initials = parts[0].substring(0, 1).toUpperCase() + 
-                 parts[1].substring(0, 1).toUpperCase();
+      initials = parts[0].substring(0, 1).toUpperCase() +
+          parts[1].substring(0, 1).toUpperCase();
     }
   } catch (e) {
     print('Error generating initials for "$name": $e');
     initials = '?';
   }
-  
+
   return CircleAvatar(
     radius: radius,
     backgroundColor: Colors.red[700],
     child: Text(
       initials,
       style: const TextStyle(
-        color: Colors.white, 
+        color: Colors.white,
         fontWeight: FontWeight.bold,
         fontSize: 16,
       ),
@@ -53,6 +60,7 @@ CircleAvatar buildAvatarHelper(String name, String? avatarUrl, double radius) {
 }
 
 // --------------------- Models ---------------------
+
 class Chat {
   final String id;
   final String name;
@@ -74,7 +82,7 @@ class Chat {
 class ChatSettings {
   bool isMuted;
   bool isBlocked;
-  
+
   ChatSettings({this.isMuted = false, this.isBlocked = false});
 
   factory ChatSettings.fromJson(Map<String, dynamic> json) {
@@ -89,6 +97,14 @@ class ChatSettings {
       'is_muted': isMuted,
       'is_blocked': isBlocked,
     };
+  }
+  
+  // Add a copy method to create a new instance with the same values
+  ChatSettings copy() {
+    return ChatSettings(
+      isMuted: isMuted,
+      isBlocked: isBlocked,
+    );
   }
 }
 
@@ -119,9 +135,10 @@ class Message {
 }
 
 // --------------------- Chats List ---------------------
+
 class ChatsListPage extends StatefulWidget {
   final Function(String userName)? onSendPost;
-  
+
   const ChatsListPage({super.key, this.onSendPost});
 
   @override
@@ -139,7 +156,6 @@ class _ChatsListPageState extends State<ChatsListPage> {
     super.initState();
     searchController = TextEditingController();
     loadChats();
-
     searchController.addListener(() {
       final query = searchController.text.toLowerCase();
       setState(() {
@@ -170,7 +186,7 @@ class _ChatsListPageState extends State<ChatsListPage> {
       final myConversations = await supabase
           .from('conversation_participants')
           .select('conversation_id')
-          .eq('user_id', MOCKED_USER_ID);
+          .eq('user_id', CURRENT_USER_ID);
 
       final myConversationIds = (myConversations as List)
           .map((p) => p['conversation_id'] as String)
@@ -180,7 +196,6 @@ class _ChatsListPageState extends State<ChatsListPage> {
 
       // Create a map: otherUserId -> settings
       Map<String, ChatSettings> settingsMap = {};
-
       if (myConversationIds.isNotEmpty) {
         // For each conversation, find the other participant and get settings
         for (var conversationId in myConversationIds) {
@@ -192,10 +207,11 @@ class _ChatsListPageState extends State<ChatsListPage> {
                 .eq('conversation_id', conversationId);
 
             // Find the other user (not me)
-            String? otherUserId;
+            dynamic otherUserId;
             for (var participant in participants) {
-              if (participant['user_id'] != MOCKED_USER_ID) {
-                otherUserId = participant['user_id'];
+              final participantId = participant['user_id']; // Keep as int
+              if (participantId != CURRENT_USER_ID) {
+                otherUserId = participantId;
                 break;
               }
             }
@@ -206,11 +222,12 @@ class _ChatsListPageState extends State<ChatsListPage> {
                   .from('conversation_settings')
                   .select('is_muted, is_blocked')
                   .eq('conversation_id', conversationId)
-                  .eq('user_id', MOCKED_USER_ID)
+                  .eq('user_id', CURRENT_USER_ID)
                   .maybeSingle();
 
               if (settingsResult != null) {
-                settingsMap[otherUserId] = ChatSettings.fromJson(settingsResult);
+                // Convert otherUserId to string for consistent comparison
+                settingsMap[otherUserId.toString()] = ChatSettings.fromJson(settingsResult);
                 print('✓ Loaded settings for user $otherUserId: muted=${settingsResult['is_muted']}, blocked=${settingsResult['is_blocked']}');
               }
             }
@@ -222,9 +239,8 @@ class _ChatsListPageState extends State<ChatsListPage> {
 
       setState(() {
         chats = usersList.map((user) {
-          final userId = user['id'] as String;
+          final userId = user['id'].toString(); // Convert to string to handle both int and UUID
           final settings = settingsMap[userId] ?? ChatSettings();
-          
           return Chat(
             id: userId,
             name: user['username'] ?? 'Unknown User',
@@ -260,17 +276,126 @@ class _ChatsListPageState extends State<ChatsListPage> {
   }
 
   void startChatWithUser(String userId) async {
-    final chat = chats.firstWhere((c) => c.userId == userId);
+    final chatIndex = chats.indexWhere((c) => c.userId == userId);
+    if (chatIndex == -1) return;
+    
+    final chat = chats[chatIndex];
+    
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+    
+    try {
+      print('🔄 Loading chat settings for user $userId...');
+      print('   CURRENT_USER_ID: $CURRENT_USER_ID');
+      
+      // Find the conversation for this user
+      final myConversations = await supabase
+          .from('conversation_participants')
+          .select('conversation_id')
+          .eq('user_id', CURRENT_USER_ID);
+
+      print('   My conversations: ${(myConversations as List).length}');
+
+      final myConversationIds = (myConversations as List)
+          .map((p) => p['conversation_id'] as String)
+          .toList();
+
+      if (myConversationIds.isNotEmpty) {
+        // Find conversation with this specific user
+        for (var conversationId in myConversationIds) {
+          final participants = await supabase
+              .from('conversation_participants')
+              .select('user_id')
+              .eq('conversation_id', conversationId);
+
+          print('   Conversation $conversationId participants: $participants');
+
+          // Check if this conversation includes the target user
+          bool hasTargetUser = false;
+          for (var participant in participants) {
+            final participantUserId = participant['user_id']; // Keep as int
+            // Compare as strings since userId from Chat is a string
+            if (participantUserId.toString() == userId) {
+              hasTargetUser = true;
+              break;
+            }
+          }
+
+          if (hasTargetUser) {
+            print('   Found conversation with user $userId: $conversationId');
+            
+            // Found the conversation, load settings
+            final settingsResult = await supabase
+                .from('conversation_settings')
+                .select('is_muted, is_blocked')
+                .eq('conversation_id', conversationId)
+                .eq('user_id', CURRENT_USER_ID)
+                .maybeSingle();
+
+            print('   Settings from database: $settingsResult');
+
+            if (settingsResult != null) {
+              // Update the chat object with fresh settings from database
+              chat.settings.isMuted = settingsResult['is_muted'] ?? false;
+              chat.settings.isBlocked = settingsResult['is_blocked'] ?? false;
+              print('✅ Loaded fresh settings: muted=${chat.settings.isMuted}, blocked=${chat.settings.isBlocked}');
+            } else {
+              // No settings found, use defaults
+              chat.settings.isMuted = false;
+              chat.settings.isBlocked = false;
+              print('ℹ️ No settings found, using defaults');
+            }
+            break;
+          }
+        }
+      } else {
+        // No existing conversation, use defaults
+        chat.settings.isMuted = false;
+        chat.settings.isBlocked = false;
+        print('ℹ️ No conversation exists yet, using defaults');
+      }
+    } catch (e) {
+      print('⚠️ Error loading settings: $e');
+      print('   Stack trace: ${StackTrace.current}');
+    }
+    
+    // Close loading dialog
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    
+    // Wait a moment to ensure state is updated
+    await Future.delayed(const Duration(milliseconds: 100));
+    
+    // Now open the chat with the correctly loaded settings
+    print('📱 Opening chat with settings: muted=${chat.settings.isMuted}, blocked=${chat.settings.isBlocked}');
+    
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ChatRoomPage(chat: chat),
       ),
     );
-    
-    // Reload chats when returning to update muted icons
-    if (result == true) {
-      loadChats();
+
+    // Update settings if they were changed
+    if (result != null && result is Map) {
+      if (result['settingsChanged'] == true && result['settings'] != null) {
+        setState(() {
+          // Update both chats and filteredChats
+          chats[chatIndex].settings = result['settings'];
+          final filteredIndex = filteredChats.indexWhere((c) => c.userId == userId);
+          if (filteredIndex != -1) {
+            filteredChats[filteredIndex].settings = result['settings'];
+          }
+        });
+        print('✓ Updated chat settings for user $userId after returning');
+      }
     }
   }
 
@@ -330,7 +455,9 @@ class _ChatsListPageState extends State<ChatsListPage> {
                           ],
                         ),
                         subtitle: Text(
-                          chat.lastMessage.isEmpty ? 'Start a conversation' : chat.lastMessage,
+                          chat.lastMessage.isEmpty
+                              ? 'Start a conversation'
+                              : chat.lastMessage,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -362,6 +489,7 @@ class _ChatsListPageState extends State<ChatsListPage> {
 }
 
 // --------------------- New Message Page ---------------------
+
 class NewMessagePage extends StatefulWidget {
   final Function(String userId) onStartChat;
   final List<Chat> availableUsers;
@@ -385,7 +513,6 @@ class _NewMessagePageState extends State<NewMessagePage> {
     super.initState();
     searchController = TextEditingController();
     filteredUsers = widget.availableUsers;
-
     searchController.addListener(() {
       final query = searchController.text.toLowerCase();
       setState(() {
@@ -453,8 +580,10 @@ class _NewMessagePageState extends State<NewMessagePage> {
 }
 
 // --------------------- Chat Room (THE MESSAGING PAGE) ---------------------
+
 class ChatRoomPage extends StatefulWidget {
   final Chat chat;
+
   const ChatRoomPage({super.key, required this.chat});
 
   @override
@@ -468,7 +597,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   bool isLoading = true;
   bool isSending = false;
   String? conversationId;
-  String? currentUserId;
+  int? currentUserId; // Changed from String? to int?
 
   @override
   void initState() {
@@ -479,18 +608,18 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   Future<void> initializeChat() async {
     try {
       // Set mocked user ID
-      currentUserId = MOCKED_USER_ID;
-
+      currentUserId = CURRENT_USER_ID;
       print('🚀 Initializing chat with user ID: $currentUserId');
 
+      // Check if user exists in database
       // Check if user exists in database
       try {
         final userCheck = await supabase
             .from('users')
-            .select('id, username')
-            .eq('id', currentUserId!)
+            .select('user_id, name')        // ✅ FIXED: Changed to user_id and name
+            .eq('user_id', currentUserId!)  // ✅ FIXED: Changed to user_id
             .maybeSingle();
-        
+
         if (userCheck == null) {
           setState(() {
             isLoading = false;
@@ -498,7 +627,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('⚠️ User ID 11111111-1111-1111-1111-111111111111 not found in database. Please run add_test_user.sql first.'),
+                content: Text('⚠️ User not found in database'),
                 duration: Duration(seconds: 5),
                 backgroundColor: Colors.orange,
               ),
@@ -506,28 +635,38 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           }
           return;
         }
-        print('✓ User found: ${userCheck['username']}');
+        print('✓ User found: ${userCheck['name']}');  // ✅ FIXED: Changed to 'name'
       } catch (e) {
         print('Error checking user: $e');
       }
 
       // Find or create conversation
       await findOrCreateConversation();
-      
+
       // Load conversation settings
       await loadConversationSettings();
-      
+
+      // Force another setState to ensure UI updates with the loaded settings
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (mounted) {
+        setState(() {
+          // This empty setState forces a rebuild with the updated settings
+          print('🔄 Forcing UI rebuild with loaded settings');
+        });
+      }
+
       // Load messages
       await loadMessages();
-      
+
       // Subscribe to new messages
       subscribeToMessages();
-      
+
       setState(() {
         isLoading = false;
       });
-      
+
       print('✓ Chat initialized successfully');
+      print('   Final settings: isBlocked=${widget.chat.settings.isBlocked}, isMuted=${widget.chat.settings.isMuted}');
     } catch (e) {
       print('❌ Error initializing chat: $e');
       setState(() {
@@ -547,7 +686,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   Future<void> findOrCreateConversation() async {
     try {
       print('🔍 Looking for existing conversation...');
-      
+
       // Find conversation where both users are participants
       final participantsResponse = await supabase
           .from('conversation_participants')
@@ -589,7 +728,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   Future<void> createNewConversation() async {
     try {
       print('📝 Creating new conversation...');
-      
+
       // Create new conversation
       final newConversation = await supabase
           .from('conversations')
@@ -599,7 +738,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           })
           .select('id')
           .single();
-      
+
       conversationId = newConversation['id'];
       print('✓ Created conversation: $conversationId');
 
@@ -616,7 +755,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           'joined_at': DateTime.now().toIso8601String(),
         },
       ]);
-      
+
       print('✓ Added participants to conversation');
 
       // Create default settings for both users
@@ -634,7 +773,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           'is_blocked': false,
         },
       ]);
-      
+
       print('✓ Created default settings for both users');
     } catch (e) {
       print('❌ Error creating conversation: $e');
@@ -643,11 +782,16 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   Future<void> loadConversationSettings() async {
-    if (conversationId == null || currentUserId == null) return;
+    if (conversationId == null || currentUserId == null) {
+      print('⚠️ Cannot load settings: conversationId=$conversationId, currentUserId=$currentUserId');
+      return;
+    }
 
     try {
       print('⚙️ Loading conversation settings...');
-      
+      print('   Conversation ID: $conversationId');
+      print('   User ID: $currentUserId');
+
       final response = await supabase
           .from('conversation_settings')
           .select('*')
@@ -655,12 +799,22 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           .eq('user_id', currentUserId!)
           .maybeSingle();
 
+      print('   Database response: $response');
+
       if (response != null) {
-        setState(() {
-          widget.chat.settings = ChatSettings.fromJson(response);
-        });
-        print('✓ Loaded settings: muted=${widget.chat.settings.isMuted}, blocked=${widget.chat.settings.isBlocked}');
+        final newSettings = ChatSettings.fromJson(response);
+        print('   Parsed settings: muted=${newSettings.isMuted}, blocked=${newSettings.isBlocked}');
+        
+        // Force update the UI state
+        if (mounted) {
+          setState(() {
+            widget.chat.settings.isMuted = newSettings.isMuted;
+            widget.chat.settings.isBlocked = newSettings.isBlocked;
+          });
+          print('✅ Settings loaded and UI updated: muted=${widget.chat.settings.isMuted}, blocked=${widget.chat.settings.isBlocked}');
+        }
       } else {
+        print('⚠️ No settings found in database, creating defaults...');
         // Create default settings if none exist
         await supabase.from('conversation_settings').insert({
           'conversation_id': conversationId,
@@ -668,10 +822,18 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           'is_muted': false,
           'is_blocked': false,
         });
-        print('✓ Created default settings');
+        
+        if (mounted) {
+          setState(() {
+            widget.chat.settings.isMuted = false;
+            widget.chat.settings.isBlocked = false;
+          });
+          print('✓ Created default settings');
+        }
       }
     } catch (e) {
       print('❌ Error loading conversation settings: $e');
+      print('   Stack trace: ${StackTrace.current}');
     }
   }
 
@@ -680,7 +842,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
     try {
       print('💾 Updating conversation settings...');
-      
+
       await supabase
           .from('conversation_settings')
           .upsert({
@@ -689,7 +851,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
             'is_muted': widget.chat.settings.isMuted,
             'is_blocked': widget.chat.settings.isBlocked,
           });
-      
+
       print('✓ Settings updated successfully');
     } catch (e) {
       print('❌ Error updating conversation settings: $e');
@@ -709,7 +871,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
     try {
       print('📨 Loading messages for conversation: $conversationId');
-      
+
       final response = await supabase
           .from('messages')
           .select('*')
@@ -721,9 +883,9 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
             .map((msg) => Message.fromJson(msg))
             .toList();
       });
-      
+
       print('✓ Loaded ${messages.length} messages');
-      
+
       // Scroll to bottom after loading messages
       WidgetsBinding.instance.addPostFrameCallback((_) {
         scrollToBottom();
@@ -752,14 +914,14 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           callback: (payload) {
             print('📩 New message received: ${payload.newRecord}');
             final newMessage = Message.fromJson(payload.newRecord);
-            
+
             // Only add if not already in list (avoid duplicates)
             if (!messages.any((m) => m.id == newMessage.id)) {
               setState(() {
                 messages.add(newMessage);
                 widget.chat.lastMessage = newMessage.content;
               });
-              
+
               // Scroll to bottom when new message arrives
               scrollToBottom();
             }
@@ -795,7 +957,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       print('⚠️ Message is empty');
       return;
     }
-    
+
     if (conversationId == null) {
       print('⚠️ No conversation ID');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -806,7 +968,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       );
       return;
     }
-    
+
     if (currentUserId == null) {
       print('⚠️ No user ID');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -832,7 +994,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
     try {
       print('📤 Sending message: "$messageText" to conversation: $conversationId');
-      
+
       // Insert message into database
       final response = await supabase.from('messages').insert({
         'conversation_id': conversationId,
@@ -850,7 +1012,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           .eq('id', conversationId!);
 
       widget.chat.lastMessage = messageText;
-      
+
       // Show success feedback
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -863,10 +1025,10 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       }
     } catch (e) {
       print('❌ Error sending message: $e');
-      
+
       // Restore message text if sending failed
       messageController.text = messageText;
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -909,7 +1071,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
     try {
       print('🗑️ Clearing chat history...');
-      
+
       await supabase
           .from('messages')
           .delete()
@@ -919,9 +1081,9 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         messages.clear();
         widget.chat.lastMessage = "";
       });
-      
+
       print('✓ Chat history cleared');
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -944,7 +1106,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   void openSettings() async {
-    final result = await Navigator.push<bool>(
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ChatSettingsPage(
@@ -978,10 +1140,16 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
   @override
   Widget build(BuildContext context) {
+    // DEBUG: Log current settings state every time build is called
+    print('🎨 Building ChatRoomPage - isBlocked=${widget.chat.settings.isBlocked}, isMuted=${widget.chat.settings.isMuted}');
+    
     return WillPopScope(
       onWillPop: () async {
-        // Return true to indicate settings may have changed
-        Navigator.of(context).pop(true);
+        // Return the updated settings when leaving the chat
+        Navigator.of(context).pop({
+          'settingsChanged': true,
+          'settings': widget.chat.settings.copy(),
+        });
         return false;
       },
       child: Scaffold(
@@ -1006,213 +1174,258 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           ],
           backgroundColor: Colors.red[700],
         ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                // Show blocked user warning
-                if (widget.chat.settings.isBlocked)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    color: Colors.red[50],
-                    child: Row(
-                      children: [
-                        Icon(Icons.block, color: Colors.red[700], size: 20),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'You have blocked ${widget.chat.name}. You cannot send or receive messages.',
-                            style: TextStyle(
-                              color: Colors.red[900],
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
+        body: isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  // Show blocked user warning
+                  if (widget.chat.settings.isBlocked)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      color: Colors.orange[50],
+                      child: Row(
+                        children: [
+                          Icon(Icons.block, color: Colors.orange[700], size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'You blocked ${widget.chat.name}',
+                              style: TextStyle(
+                                color: Colors.orange[900],
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                Expanded(
-                  child: messages.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.chat_bubble_outline,
-                                size: 64,
-                                color: Colors.grey[400],
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No messages yet',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Start the conversation!',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[500],
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          controller: scrollController,
-                          reverse: true,
-                          padding: const EdgeInsets.all(8),
-                          itemCount: messages.length,
-                          itemBuilder: (context, index) {
-                            final message = messages[messages.length - 1 - index];
-                            final isMe = message.senderId == currentUserId;
-                            
-                            // Show date separator if needed
-                            bool showDateSeparator = false;
-                            if (index == messages.length - 1) {
-                              showDateSeparator = true;
-                            } else {
-                              // Get the previous message (the one that will be shown above this one)
-                              final prevMessage = messages[messages.length - 2 - index];
-                              if (message.createdAt.day != prevMessage.createdAt.day) {
-                                showDateSeparator = true;
-                              }
-                            }
-                            
-                            return Column(
-                              children: [
-                                if (showDateSeparator)
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    child: Text(
-                                      _formatDate(message.createdAt),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
+                          TextButton(
+                            onPressed: () async {
+                              // Unblock the user
+                              setState(() {
+                                widget.chat.settings.isBlocked = false;
+                              });
+                              await updateConversationSettings();
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('${widget.chat.name} unblocked'),
+                                    backgroundColor: Colors.green,
                                   ),
-                                Align(
-                                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                                  child: Container(
-                                    constraints: BoxConstraints(
-                                      maxWidth: MediaQuery.of(context).size.width * 0.75,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 10,
-                                      horizontal: 14,
-                                    ),
-                                    margin: const EdgeInsets.symmetric(
-                                      vertical: 3,
-                                      horizontal: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isMe ? Colors.red[700] : Colors.grey[300],
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          message.content,
-                                          style: TextStyle(
-                                            color: isMe ? Colors.white : Colors.black87,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          _formatTime(message.createdAt),
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            color: isMe ? Colors.white70 : Colors.black54,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                );
+                              }
+                            },
+                            child: Text(
+                              'Unblock',
+                              style: TextStyle(
+                                color: Colors.red[700],
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Expanded(
+                    child: messages.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.chat_bubble_outline,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No messages yet',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  widget.chat.settings.isBlocked 
+                                      ? 'Messaging is not available'
+                                      : 'Start the conversation!',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[500],
                                   ),
                                 ),
                               ],
-                            );
-                          },
-                        ),
-                ),
-                const Divider(height: 1),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    boxShadow: [
-                      BoxShadow(
-                        offset: const Offset(0, -1),
-                        blurRadius: 4,
-                        color: Colors.black.withOpacity(0.1),
-                      ),
-                    ],
-                  ),
-                  child: SafeArea(
-                    child: Row(
-                      children: [
-                        IconButton(
-                          onPressed: openAttachments,
-                          icon: Icon(Icons.attach_file, color: Colors.grey[600]),
-                        ),
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[200],
-                              borderRadius: BorderRadius.circular(24),
                             ),
-                            child: TextField(
-                              controller: messageController,
-                              decoration: const InputDecoration(
-                                hintText: "Type a message",
-                                border: InputBorder.none,
-                              ),
-                              maxLines: null,
-                              textCapitalization: TextCapitalization.sentences,
-                              onSubmitted: (_) => sendMessage(),
-                              enabled: !isSending && !widget.chat.settings.isBlocked,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: (isSending || widget.chat.settings.isBlocked) 
-                                ? Colors.grey 
-                                : Colors.red[700],
-                            shape: BoxShape.circle,
-                          ),
-                          child: IconButton(
-                            onPressed: (isSending || widget.chat.settings.isBlocked) 
-                                ? null 
-                                : sendMessage,
-                            icon: isSending
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            reverse: true,
+                            padding: const EdgeInsets.all(8),
+                            itemCount: messages.length,
+                            itemBuilder: (context, index) {
+                              final message = messages[messages.length - 1 - index];
+                              final isMe = message.senderId == currentUserId;
+
+                              // Show date separator if needed
+                              bool showDateSeparator = false;
+                              if (index == messages.length - 1) {
+                                showDateSeparator = true;
+                              } else {
+                                // Get the previous message (the one that will be shown above this one)
+                                final prevMessage = messages[messages.length - 2 - index];
+                                if (message.createdAt.day != prevMessage.createdAt.day) {
+                                  showDateSeparator = true;
+                                }
+                              }
+
+                              return Column(
+                                children: [
+                                  if (showDateSeparator)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      child: Text(
+                                        _formatDate(message.createdAt),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
                                     ),
-                                  )
-                                : const Icon(Icons.send, color: Colors.white),
+                                  Align(
+                                    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                                    child: Container(
+                                      constraints: BoxConstraints(
+                                        maxWidth: MediaQuery.of(context).size.width * 0.75,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                        horizontal: 14,
+                                      ),
+                                      margin: const EdgeInsets.symmetric(
+                                        vertical: 3,
+                                        horizontal: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isMe ? Colors.red[700] : Colors.grey[300],
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            message.content,
+                                            style: TextStyle(
+                                              color: isMe ? Colors.white : Colors.black87,
+                                              fontSize: 15,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _formatTime(message.createdAt),
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: isMe ? Colors.white70 : Colors.black54,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
-                        ),
-                      ],
-                    ),
                   ),
-                ),
-              ],
-            ),
+                  const Divider(height: 1),
+                  // Show "cannot send messages" warning at bottom when blocked
+                  if (widget.chat.settings.isBlocked)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      color: Colors.grey[100],
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.block, color: Colors.grey[600], size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            'You cannot send messages to a blocked user',
+                            style: TextStyle(
+                              color: Colors.grey[700],
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  // Only show input field if not blocked
+                  if (!widget.chat.settings.isBlocked)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            offset: const Offset(0, -1),
+                            blurRadius: 4,
+                            color: Colors.black.withOpacity(0.1),
+                          ),
+                        ],
+                      ),
+                      child: SafeArea(
+                        child: Row(
+                          children: [
+                            IconButton(
+                              onPressed: openAttachments,
+                              icon: Icon(Icons.attach_file, color: Colors.grey[600]),
+                            ),
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                child: TextField(
+                                  controller: messageController,
+                                  decoration: const InputDecoration(
+                                    hintText: "Type a message",
+                                    border: InputBorder.none,
+                                  ),
+                                  maxLines: null,
+                                  textCapitalization: TextCapitalization.sentences,
+                                  onSubmitted: (_) => sendMessage(),
+                                  enabled: !isSending,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: isSending ? Colors.grey : Colors.red[700],
+                                shape: BoxShape.circle,
+                              ),
+                              child: IconButton(
+                                onPressed: isSending ? null : sendMessage,
+                                icon: isSending
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                        ),
+                                      )
+                                    : const Icon(Icons.send, color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
       ),
     );
   }
@@ -1248,13 +1461,14 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 }
 
 // --------------------- Chat Settings ---------------------
+
 class ChatSettingsPage extends StatefulWidget {
   final String? conversationId;
-  final String? currentUserId;
+  final int? currentUserId; // Changed from String? to int?
   final ChatSettings settings;
   final VoidCallback clearChat;
   final VoidCallback onSettingsChanged;
-  
+
   const ChatSettingsPage({
     super.key,
     required this.conversationId,
@@ -1288,7 +1502,7 @@ class _ChatSettingsPageState extends State<ChatSettingsPage> {
 
     try {
       print('💾 Updating $settingName to $value...');
-      
+
       Map<String, dynamic> updateData = {
         'conversation_id': widget.conversationId,
         'user_id': widget.currentUserId,
@@ -1305,12 +1519,12 @@ class _ChatSettingsPageState extends State<ChatSettingsPage> {
       await supabase
           .from('conversation_settings')
           .upsert(updateData);
-      
+
       print('✓ Setting updated successfully');
-      
+
       // Notify parent that settings changed
       widget.onSettingsChanged();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1326,7 +1540,7 @@ class _ChatSettingsPageState extends State<ChatSettingsPage> {
       }
     } catch (e) {
       print('❌ Error updating setting: $e');
-      
+
       // Revert the change on error
       setState(() {
         if (settingName == 'mute') {
@@ -1335,7 +1549,7 @@ class _ChatSettingsPageState extends State<ChatSettingsPage> {
           widget.settings.isBlocked = !value;
         }
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1375,8 +1589,8 @@ class _ChatSettingsPageState extends State<ChatSettingsPage> {
                   subtitle: const Text("Turn off notifications for this chat"),
                   secondary: const Icon(Icons.notifications_off),
                   activeColor: Colors.red[700],
-                  onChanged: isUpdating 
-                      ? null 
+                  onChanged: isUpdating
+                      ? null
                       : (value) {
                           setState(() {
                             widget.settings.isMuted = value;
@@ -1391,8 +1605,8 @@ class _ChatSettingsPageState extends State<ChatSettingsPage> {
                   subtitle: const Text("Block messages from this user"),
                   secondary: const Icon(Icons.block),
                   activeColor: Colors.red[700],
-                  onChanged: isUpdating 
-                      ? null 
+                  onChanged: isUpdating
+                      ? null
                       : (value) {
                           setState(() {
                             widget.settings.isBlocked = value;

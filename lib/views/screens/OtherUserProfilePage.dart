@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'comment_page.dart';
-import 'main.dart';
 import 'send_post_dialog.dart';
 import 'chat_room_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+
 
 final supabase = Supabase.instance.client;
 

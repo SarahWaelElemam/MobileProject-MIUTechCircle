@@ -1,20 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../utils/image_picker_helper.dart';
-import '../services/profile_image_service.dart';
+import '../../utils/image_picker_helper.dart';
+import '../../services/profile_image_service.dart';
 
 
 final supabase = Supabase.instance.client;
 
 class NotificationsPage extends StatefulWidget {
-  const NotificationsPage({Key? key}) : super(key: key);
+  final int userId; 
+  
+  const NotificationsPage({
+    Key? key,
+    required this.userId, 
+  }) : super(key: key);
 
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
-  final String mockCurrentUserId = "11111111-1111-1111-1111-111111111111";
+  
   List notifications = [];
   bool loading = true;
 
@@ -28,6 +33,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final data = await supabase
         .from('notifications')
         .select()
+        .eq('user_id', widget.userId) // ✅ Filter by current user
         .order('created_at', ascending: false);
     print('Supabase notifications: $data');
 
@@ -37,32 +43,39 @@ class _NotificationsPageState extends State<NotificationsPage> {
     });
   }
 
-  String formatTime(String time) {
+String formatTime(String? time) { // ✅ Make parameter nullable
+  if (time == null) return 'Just now';
+  
+  try {
     final date = DateTime.parse(time);
     final diff = DateTime.now().difference(date);
 
     if (diff.inMinutes < 60) return "${diff.inMinutes} minutes ago";
     if (diff.inHours < 24) return "${diff.inHours} hours ago";
     return "${diff.inDays} days ago";
+  } catch (e) {
+    print('Error parsing time: $e');
+    return 'Recently';
   }
+}
 
   Future<void> acceptFollow(String actorId) async {
     await supabase.from('followers').insert({
-      'user_id': mockCurrentUserId,
+      'user_id': widget.userId, // ✅ Use widget.userId
       'follower_id': actorId,
     });
 
     await supabase.from('notifications')
         .update({'is_read': true})
         .eq('actor_id', actorId)
-        .eq('user_id', mockCurrentUserId);
+        .eq('user_id', widget.userId); // ✅ Use widget.userId
   }
 
   Future<void> rejectFollow(String actorId) async {
     await supabase.from('notifications')
         .update({'is_read': true})
         .eq('actor_id', actorId)
-        .eq('user_id', mockCurrentUserId);
+        .eq('user_id', widget.userId); // ✅ Use widget.userId
   }
 
   @override
@@ -89,7 +102,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
             width: 1,
           ),
         ),
-
       ),
       body: loading
           ? const Center(child: CircularProgressIndicator())
@@ -99,19 +111,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                   itemCount: notifications.length,
                   itemBuilder: (context, index) {
-                    final n = notifications[index];
+  final n = notifications[index];
 
-                    return _buildNotificationItem(
-                      title: n['title'],
-                      message: n['message'],
-                      time: formatTime(n['created_at']),
-                      isRead: n['is_read'],
-                      type: n['type'],
-                      actorId: n['actor_id'],
-                      index: index,
-                      profileUrl: n['profile_url'], // real user pic
-                    );
-                  },
+  return _buildNotificationItem(
+    title: n['title'] ?? 'Notification', // ✅ Handle null
+    message: n['message'] ?? '', // ✅ Handle null
+    time: n['created_at'] != null 
+        ? formatTime(n['created_at']) 
+        : 'Just now', // ✅ Handle null
+    isRead: n['is_read'] ?? false, // ✅ Handle null
+    type: n['type'], // Can be null
+    actorId: n['actor_id'], // Can be null
+    index: index,
+    profileUrl: n['profile_url'], // Can be null
+  );
+},
                 ),
     );
   }
@@ -152,10 +166,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
           // CircleAvatar for user image
           CircleAvatar(
             radius: 20,
-          backgroundImage: profileUrl != null
-    ? NetworkImage(profileUrl)
-    : const AssetImage('assets/men1.jpg'),
-
+            backgroundImage: profileUrl != null
+                ? NetworkImage(profileUrl)
+                : const AssetImage('assets/men1.jpg') as ImageProvider,
           ),
           const SizedBox(width: 12),
           Expanded(
