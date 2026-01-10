@@ -141,8 +141,6 @@ class _CreateFreelanceProjectModalState
         listen: false,
       );
 
-      // Build project data - DO NOT include posted_at or created_at here
-      // The controller will add them
       final projectData = {
         'title': _titleController.text.trim(),
         'company_name': _companyNameController.text.trim(),
@@ -153,7 +151,6 @@ class _CreateFreelanceProjectModalState
         'deadline': DateFormat('yyyy-MM-dd').format(_selectedDeadline!),
       };
 
-      // Add optional fields only if not empty
       final companyLogo = _companyLogoController.text.trim();
       if (companyLogo.isNotEmpty) {
         projectData['company_logo'] = companyLogo;
@@ -243,6 +240,35 @@ class _CreateFreelanceProjectModalState
     }
   }
 
+  Widget _buildCharacterCounter(TextEditingController controller, int minLength) {
+    final count = controller.text.length;
+    final isValid = count >= minLength;
+    
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check_circle : Icons.info_outline,
+            size: 14,
+            color: isValid ? Colors.green : Colors.grey,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            count >= minLength
+                ? '$count characters'
+                : '$count / $minLength characters (${minLength - count} more needed)',
+            style: TextStyle(
+              fontSize: 12,
+              color: isValid ? Colors.green : Colors.grey[600],
+              fontWeight: isValid ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -330,6 +356,7 @@ class _CreateFreelanceProjectModalState
                         label: 'Company Name',
                         hint: 'e.g., TechStart Inc.',
                         icon: Icons.business,
+                        minLength: null,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return 'Please enter company name';
@@ -345,6 +372,7 @@ class _CreateFreelanceProjectModalState
                         hint: 'https://example.com/logo.png',
                         icon: Icons.image,
                         required: false,
+                        minLength: null,
                       ),
                       const SizedBox(height: 24),
 
@@ -357,6 +385,7 @@ class _CreateFreelanceProjectModalState
                         label: 'Project Title',
                         hint: 'e.g., Mobile App UI/UX Designer Needed',
                         icon: Icons.title,
+                        minLength: 10,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return 'Please enter project title';
@@ -375,6 +404,7 @@ class _CreateFreelanceProjectModalState
                         hint: 'Describe the project in detail...',
                         icon: Icons.description,
                         maxLines: 4,
+                        minLength: 50,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return 'Please enter description';
@@ -393,6 +423,7 @@ class _CreateFreelanceProjectModalState
                         hint: '• Create wireframes and prototypes\n• Design user interface\n• Conduct user research',
                         icon: Icons.list_alt,
                         maxLines: 5,
+                        minLength: 30,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return 'Please enter key responsibilities';
@@ -583,6 +614,7 @@ class _CreateFreelanceProjectModalState
                               label: 'Duration',
                               hint: 'e.g., 2-3 months',
                               icon: Icons.access_time,
+                              minLength: null,
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
                                   return 'Required';
@@ -606,6 +638,7 @@ class _CreateFreelanceProjectModalState
                                   label: 'Deadline',
                                   hint: 'Select date',
                                   icon: Icons.calendar_today,
+                                  minLength: null,
                                   validator: (value) {
                                     if (_selectedDeadline == null) {
                                       return 'Required';
@@ -626,6 +659,7 @@ class _CreateFreelanceProjectModalState
                         hint: 'e.g., \$3000-\$5000',
                         icon: Icons.attach_money,
                         required: false,
+                        minLength: null,
                       ),
                     ],
                   ),
@@ -747,66 +781,76 @@ class _CreateFreelanceProjectModalState
     required IconData icon,
     int maxLines = 1,
     bool required = true,
+    int? minLength,
     String? Function(String?)? validator,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
+            Row(
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                if (required) ...[
+                  const SizedBox(width: 4),
+                  const Text(
+                    '*',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ],
             ),
-            if (required) ...[
-              const SizedBox(width: 4),
-              const Text(
-                '*',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: controller,
+              maxLines: maxLines,
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey[400],
+                ),
+                prefixIcon: Icon(icon, color: Colors.red, size: 20),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.red, width: 2),
+                ),
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.red),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
                 ),
               ),
-            ],
+              onChanged: (value) {
+                // Trigger rebuild to update character count
+                setState(() {});
+              },
+              validator: validator,
+            ),
+            if (minLength != null) _buildCharacterCounter(controller, minLength),
           ],
-        ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          maxLines: maxLines,
-          style: const TextStyle(fontSize: 14),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(
-              fontSize: 13,
-              color: Colors.grey[400],
-            ),
-            prefixIcon: Icon(icon, color: Colors.red, size: 20),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey[300]!),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Colors.red, width: 2),
-            ),
-            errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Colors.red),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 14,
-            ),
-          ),
-          validator: validator,
-        ),
-      ],
+        );
+      },
     );
   }
 }

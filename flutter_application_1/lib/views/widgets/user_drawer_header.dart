@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../screens/calender_screen.dart';
-import '../screens/SavedPostsPage.dart'; // ✅ Add this import
-import '../screens/settings_page.dart'; // Add this line
+import '../screens/SavedPostsPage.dart';
+import '../screens/saved_freelance_projects_page.dart'; // Add this import
+import '../screens/settings_page.dart';
 
 class UserDrawerContent extends StatefulWidget {
   final int userId;
@@ -113,23 +114,44 @@ class _UserDrawerContentState extends State<UserDrawerContent> {
 
                   // ========= DRAWER MENU ITEMS =========
                   ListTile(
-                    leading: const Icon(Icons.bookmark),
+                    leading: const Icon(Icons.bookmark, color: Colors.red),
                     title: const Text("Saved Posts"),
                     onTap: () {
-                      Navigator.pop(context); // ✅ Close the drawer
+                      Navigator.pop(context);
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => SavedPostsPage(currentUserId: widget.userId), // ✅ Navigate to saved posts
+                          builder: (_) => SavedPostsPage(currentUserId: widget.userId),
                         ),
                       );
                     },
                   ),
+                  
                   ListTile(
-                    leading: const Icon(Icons.calendar_today),
+                    leading: const Icon(Icons.work, color: Colors.orange),
+                    title: const Text("Saved Projects"),
+                    subtitle: const Text(
+                      "Freelancing opportunities",
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const SavedFreelanceProjectsPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  
+                  const Divider(),
+                  
+                  ListTile(
+                    leading: const Icon(Icons.calendar_today, color: Colors.blue),
                     title: const Text("Calendar"),
                     onTap: () {
-                      Navigator.pop(context); // Close the drawer
+                      Navigator.pop(context);
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -139,26 +161,66 @@ class _UserDrawerContentState extends State<UserDrawerContent> {
                     },
                   ),
 
-                 ListTile(
-                  leading: const Icon(Icons.settings),
-                  title: const Text('Settings'),
-                  onTap: () {
-                    Navigator.pop(context); // Close the drawer
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => SettingsPage(userId: widget.userId),
-                      ),
-                    );
-                  },
-                ),
+                  ListTile(
+                    leading: const Icon(Icons.settings, color: Colors.grey),
+                    title: const Text('Settings'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => SettingsPage(userId: widget.userId),
+                        ),
+                      );
+                    },
+                  ),
 
                   const Spacer(),
 
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: ElevatedButton.icon(
-                      onPressed: () {},
+                      onPressed: () async {
+                        // Show confirmation dialog
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Log Out'),
+                            content: const Text('Are you sure you want to log out?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                ),
+                                child: const Text('Log Out'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirm == true) {
+                          try {
+                            await Supabase.instance.client.auth.signOut();
+                            if (mounted) {
+                              Navigator.pushReplacementNamed(context, '/login');
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error logging out: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        }
+                      },
                       icon: const Icon(Icons.logout, color: Colors.white),
                       label: const Text(
                         "Log Out",

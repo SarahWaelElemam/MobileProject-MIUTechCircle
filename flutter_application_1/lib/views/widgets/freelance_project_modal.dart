@@ -19,250 +19,283 @@ class FreelanceProjectModal extends StatelessWidget {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Container(
-          constraints: const BoxConstraints(maxHeight: 550, maxWidth: 500),
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) {
+          final characterCount = introController.text.length;
+          final isValid = characterCount >= 50;
+          
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 600, maxWidth: 500),
+              padding: const EdgeInsets.all(24),
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Apply for Position',
+                    // Header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Apply for Position',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 24),
+                          onPressed: () => Navigator.pop(dialogContext),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Project Info
+                    Text(
+                      project.title,
                       style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: Colors.grey[800],
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 24),
-                      onPressed: () => Navigator.pop(dialogContext),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
+                    const SizedBox(height: 4),
+                    Text(
+                      project.companyName,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Instructions
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline,
+                              color: Colors.blue.shade700, size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Write a brief introduction about yourself, your skills, and why you\'re a good fit.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.blue.shade900,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // Text Field
+                    Expanded(
+                      child: TextFormField(
+                        controller: introController,
+                        maxLines: null,
+                        expands: true,
+                        textAlignVertical: TextAlignVertical.top,
+                        style: const TextStyle(fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Example: Hi, I\'m a Flutter developer with 3+ years of experience in mobile app development. I specialize in creating beautiful UIs...',
+                          hintStyle: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[400],
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide:
+                                const BorderSide(color: Colors.red, width: 2),
+                          ),
+                          contentPadding: const EdgeInsets.all(16),
+                        ),
+                        onChanged: (value) {
+                          setState(() {}); // Rebuild to update character count
+                        },
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please write an introduction';
+                          }
+                          if (value.trim().length < 50) {
+                            return 'Please write at least 50 characters';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Character Counter with visual feedback
+                    Row(
+                      children: [
+                        Icon(
+                          isValid ? Icons.check_circle : Icons.error_outline,
+                          size: 16,
+                          color: isValid ? Colors.green : Colors.orange,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '$characterCount / 50 characters',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: isValid ? Colors.green : Colors.orange,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (characterCount > 0)
+                          Text(
+                            characterCount < 50 
+                                ? '${50 - characterCount} more needed'
+                                : '✓ Minimum reached',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Submit Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          if (formKey.currentState!.validate()) {
+                            // Show loading
+                            showDialog(
+                              context: dialogContext,
+                              barrierDismissible: false,
+                              builder: (_) => const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+
+                            // Submit application
+                            final provider = Provider.of<FreelancingHubProvider>(
+                              context,
+                              listen: false,
+                            );
+
+                            final success = await provider.submitApplication(
+                              projectId: project.projectId,
+                              introduction: introController.text.trim(),
+                            );
+
+                            // Close loading
+                            Navigator.pop(dialogContext);
+                            // Close application modal
+                            Navigator.pop(dialogContext);
+                            // Close project details modal
+                            Navigator.pop(context);
+
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Row(
+                                    children: const [
+                                      Icon(Icons.check_circle, color: Colors.white),
+                                      SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          'Application submitted successfully!',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  backgroundColor: Colors.green,
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 3),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Row(
+                                    children: const [
+                                      Icon(Icons.error, color: Colors.white),
+                                      SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          'Failed to submit. You may have already applied.',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  backgroundColor: Colors.red.shade600,
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 3),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        icon: const Icon(Icons.send_rounded, size: 20),
+                        label: const Text(
+                          'Apply Now',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-
-                // Project Info
-                Text(
-                  project.title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Colors.grey[800],
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  project.companyName,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Instructions
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline,
-                          color: Colors.blue.shade700, size: 22),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Write a brief introduction about yourself, your skills, and why you\'re a good fit.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.blue.shade900,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 18),
-
-                // Text Field
-                Expanded(
-                  child: TextFormField(
-                    controller: introController,
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: const TextStyle(fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText:
-                          'Example: Hi, I\'m a Flutter developer with 3+ years of experience in mobile app development. I specialize in creating beautiful UIs...',
-                      hintStyle: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[400],
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            const BorderSide(color: Colors.red, width: 2),
-                      ),
-                      contentPadding: const EdgeInsets.all(16),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please write an introduction';
-                      }
-                      if (value.trim().length < 50) {
-                        return 'Please write at least 50 characters';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                // Character Counter
-                Text(
-                  '${introController.text.length} characters (min 50)',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Submit Button
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      if (formKey.currentState!.validate()) {
-                        // Show loading
-                        showDialog(
-                          context: dialogContext,
-                          barrierDismissible: false,
-                          builder: (_) => const Center(
-                            child: CircularProgressIndicator(),
-                          ),
-                        );
-
-                        // Submit application
-                        final provider = Provider.of<FreelancingHubProvider>(
-                          context,
-                          listen: false,
-                        );
-
-                        final success = await provider.submitApplication(
-                          projectId: project.projectId,
-                          introduction: introController.text.trim(),
-                        );
-
-                        // Close loading
-                        Navigator.pop(dialogContext);
-                        // Close application modal
-                        Navigator.pop(dialogContext);
-                        // Close project details modal
-                        Navigator.pop(context);
-
-                        if (success) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Row(
-                                children: const [
-                                  Icon(Icons.check_circle, color: Colors.white),
-                                  SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      'Application submitted successfully!',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              backgroundColor: Colors.green,
-                              behavior: SnackBarBehavior.floating,
-                              duration: const Duration(seconds: 3),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                          );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Row(
-                                children: const [
-                                  Icon(Icons.error, color: Colors.white),
-                                  SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      'Failed to submit. You may have already applied.',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              backgroundColor: Colors.red.shade600,
-                              behavior: SnackBarBehavior.floating,
-                              duration: const Duration(seconds: 3),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                          );
-                        }
-                      }
-                    },
-                    icon: const Icon(Icons.send_rounded, size: 20),
-                    label: const Text(
-                      'Apply Now',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 0,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
