@@ -1835,15 +1835,59 @@ Future<void> createNewConversation() async {
     }
   }
 // ✅ NEW: Accept message request
+// ✅ FIXED: Accept message request with proper upsert
 Future<void> _acceptRequest() async {
   if (conversationId == null) return;
 
   try {
-    await supabase
+    print('🔄 Accepting request for conversation: $conversationId, user: $currentUserId');
+    
+    // ✅ Check if settings row exists
+    final existing = await supabase
         .from('conversation_settings')
-        .update({'request_status': 'accepted'})
+        .select('id, request_status')
         .eq('conversation_id', conversationId!)
-        .eq('user_id', currentUserId);
+        .eq('user_id', currentUserId)
+        .maybeSingle();
+
+    print('🔍 Existing settings: $existing');
+
+    if (existing != null) {
+      // Update existing row
+      await supabase
+          .from('conversation_settings')
+          .update({
+            'request_status': 'accepted',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('conversation_id', conversationId!)
+          .eq('user_id', currentUserId);
+      
+      print('✅ Updated existing settings to accepted');
+    } else {
+      // Insert new row if it doesn't exist
+      await supabase.from('conversation_settings').insert({
+        'conversation_id': conversationId,
+        'user_id': currentUserId,
+        'is_muted': false,
+        'is_blocked': false,
+        'request_status': 'accepted',
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+      
+      print('✅ Inserted new settings row with accepted status');
+    }
+
+    // ✅ Verify the update worked
+    final verify = await supabase
+        .from('conversation_settings')
+        .select('request_status')
+        .eq('conversation_id', conversationId!)
+        .eq('user_id', currentUserId)
+        .single();
+    
+    print('✅ Verification: request_status is now ${verify['request_status']}');
 
     // Update the provider
     ref
@@ -1854,24 +1898,34 @@ Future<void> _acceptRequest() async {
     await ref.read(chatsProvider(currentUserId).notifier).loadChats();
 
     if (mounted) {
-      // ✅ Go back to chat list
-      Navigator.pop(context);
+      // Mark messages as read now that request is accepted
+      await _markMessagesAsRead();
+      
+      // Update the local state
+      setState(() {
+        // Force a rebuild with the new status
+      });
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Message request accepted'),
+          content: const Text('✅ Message request accepted'),
           backgroundColor: Colors.green[600],
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           margin: const EdgeInsets.all(16),
+          duration: const Duration(seconds: 2),
         ),
       );
+      
+      // ✅ IMPORTANT: Don't pop immediately - let user see the accepted state
+      // The banner will disappear automatically after setState
     }
   } catch (e) {
+    print('❌ Error accepting request: $e');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: $e'),
+          content: Text('Error accepting request: $e'),
           backgroundColor: AppColors.primary,
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(16),
@@ -1880,7 +1934,6 @@ Future<void> _acceptRequest() async {
     }
   }
 }
-
 // ✅ NEW: Decline message request
 Future<void> _declineRequest() async {
   if (conversationId == null) return;
@@ -2296,19 +2349,21 @@ Future<void> _sendAttachmentFromBytes(
     return buildAvatarHelper(name, avatarUrl, radius);
   }
 
-  @override
+@override
 Widget build(BuildContext context) {
-  final isBlocked = widget.chat.settings.isBlocked;
-  final isBlockedByOther = widget.chat.settings.isBlockedByOther;
-  final cannotSend = isBlocked || isBlockedByOther;
   final messages = ref.watch(messagesProvider(conversationId));
   
-  // ✅ FIXED: Get isPending from the provider so it updates when status changes
+  // ✅ Watch the chats provider to get real-time updates
   final chats = ref.watch(chatsProvider(currentUserId));
   final currentChat = chats.firstWhere(
     (c) => c.userId == widget.chat.userId,
     orElse: () => widget.chat,
   );
+  
+  // ✅ Use values from currentChat (provider), not from widget.chat
+  final isBlocked = currentChat.settings.isBlocked;
+  final isBlockedByOther = currentChat.settings.isBlockedByOther;
+  final cannotSend = isBlocked || isBlockedByOther;
   final isPending = currentChat.requestStatus == 'pending';
     
     return Scaffold(
@@ -2322,14 +2377,14 @@ Widget build(BuildContext context) {
         ),
         title: Row(
           children: [
-            buildAvatar(widget.chat.name, widget.chat.avatarUrl, 20),
+            buildAvatar(currentChat.name, currentChat.avatarUrl, 20),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.chat.name,
+                    currentChat.name,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 17,
@@ -2393,7 +2448,7 @@ Widget build(BuildContext context) {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'You blocked ${widget.chat.name}',
+                            'You blocked ${currentChat.name}',
                             style: TextStyle(
                               color: Colors.orange[900],
                               fontSize: 14,
@@ -2445,7 +2500,7 @@ Widget build(BuildContext context) {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            '${widget.chat.name} has blocked you',
+                            '${currentChat.name} has blocked you',
                             style: TextStyle(
                               color: Colors.red[900],
                               fontSize: 14,
@@ -2473,7 +2528,7 @@ Widget build(BuildContext context) {
           child: Column(
             children: [
               Text(
-                '${widget.chat.name} wants to send you a message',
+                '${currentChat.name} wants to send you a message',
                 style: TextStyle(
                   color: Colors.blue[900],
                   fontSize: 15,
@@ -2757,7 +2812,6 @@ if (!isPending)
             ),
     );
   }
-
   Widget _buildMessageBubble(Message message, bool isMe) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
