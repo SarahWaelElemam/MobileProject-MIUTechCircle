@@ -182,6 +182,27 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
               ),
             ],
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More Actions',
+            onSelected: (String value) {
+              if (value == 'batch_analyze') {
+                _runBatchAnalysis();
+              }
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'batch_analyze',
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_awesome, color: Colors.black54),
+                    SizedBox(width: 8),
+                    Text('Analyze All Pending'),
+                  ],
+                ),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadApplications,
@@ -270,6 +291,151 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
               ),
             ),
     );
+  }
+
+  Future<void> _runBatchAnalysis() async {
+    // 1. Identify candidates: Pending AND (Score is 0 OR Score > 5 i.e. legacy)
+    final candidates = _applications.where((app) {
+      final status = app['status']?.toString().toLowerCase() ?? 'pending';
+      final score = (app['ai_score'] as num?)?.toDouble() ?? 0.0;
+      return status == 'pending' && (score == 0 || score > 5.0);
+    }).toList();
+
+    if (candidates.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No pending applications need analysis'),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 2. Confirm dialog
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Batch Analysis'),
+        content: Text(
+          'Found ${candidates.length} applications to analyze.\n'
+          'This uses OpenAI and may take a moment.\n\n'
+          'Proceed?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Start'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    // 3. Process loop with Progress Dialog
+    ValueNotifier<int> progressNotifier = ValueNotifier(0);
+    int total = candidates.length;
+
+    // Show persistent progress dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: ValueListenableBuilder<int>(
+          valueListenable: progressNotifier,
+          builder: (ctx, val, _) => AlertDialog(
+            title: const Text('Analyzing...'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(
+                  value: total > 0 ? val / total : 0,
+                  backgroundColor: Colors.grey[200],
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Processing $val of $total',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Do not close the app',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    int completed = 0;
+
+    // Process in chunks of 5 to allow parallelism without hitting rate limits instantly
+    const int batchSize = 5;
+    for (var i = 0; i < candidates.length; i += batchSize) {
+      if (!mounted) break;
+
+      final end = (i + batchSize < candidates.length)
+          ? i + batchSize
+          : candidates.length;
+      final batch = candidates.sublist(i, end);
+
+      // Run this batch in parallel
+      await Future.wait(
+        batch.map((app) async {
+          if (!mounted) return;
+          final appId = app['application_id'] as String;
+
+          try {
+            final result =
+                await FreelancingHubController.recalculateApplicationScore(
+                  appId,
+                  app['project_id'],
+                  app['applicant_id'].toString(),
+                  app['introduction'],
+                );
+
+            if (result != null) {
+              // Update local list silently
+              final index = _applications.indexWhere(
+                (element) => element['application_id'] == appId,
+              );
+              if (index != -1) {
+                _applications[index]['ai_score'] = result['score'];
+                _applications[index]['ai_feedback'] = result['feedback'];
+              }
+            }
+          } catch (e) {
+            debugPrint('Batch error for $appId: $e');
+          } finally {
+            // Update progress
+            completed++;
+            if (mounted) {
+              progressNotifier.value = completed;
+            }
+          }
+        }),
+      );
+    }
+
+    if (mounted) {
+      Navigator.pop(context); // Close dialog
+      setState(() {}); // Refresh UI
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Batch analysis completed for $completed applications'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
   Future<void> _handleRecalculate(
