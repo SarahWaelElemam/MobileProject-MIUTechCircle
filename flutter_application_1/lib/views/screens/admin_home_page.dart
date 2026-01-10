@@ -42,10 +42,11 @@ class _AdminHomePageState extends State<AdminHomePage> {
       try {
         final usersData = await Supabase.instance.client
             .from('users')
-            .select('id');
+            .select('user_id'); // Changed from 'id' to 'user_id'
         usersCount = (usersData as List).length;
+        debugPrint('✅ Users count: $usersCount');
       } catch (e) {
-        debugPrint('Error counting users: $e');
+        debugPrint('❌ Error counting users: $e');
       }
 
       int postsCount = 0;
@@ -54,8 +55,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
             .from('posts')
             .select('id');
         postsCount = (postsData as List).length;
+        debugPrint('✅ Posts count: $postsCount');
       } catch (e) {
-        debugPrint('Error counting posts: $e');
+        debugPrint('❌ Error counting posts: $e');
       }
 
       int projectsCount = 0;
@@ -64,8 +66,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
             .from('projects')
             .select('id');
         projectsCount = (projectsData as List).length;
+        debugPrint('✅ Projects count: $projectsCount');
       } catch (e) {
-        debugPrint('Error counting projects: $e');
+        debugPrint('❌ Error counting projects: $e');
       }
 
       int freelanceCount = 0;
@@ -74,8 +77,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
             .from('freelance_projects')
             .select('project_id');
         freelanceCount = (freelanceData as List).length;
+        debugPrint('✅ Freelance count: $freelanceCount');
       } catch (e) {
-        debugPrint('Error counting freelance projects: $e');
+        debugPrint('❌ Error counting freelance projects: $e');
       }
 
       setState(() {
@@ -86,7 +90,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint('Error loading stats: $e');
+      debugPrint('❌ Error loading stats: $e');
       setState(() {
         _errorMessage = 'Failed to load statistics';
         _isLoading = false;

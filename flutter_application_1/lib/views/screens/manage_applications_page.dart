@@ -38,6 +38,10 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
       List<Map<String, dynamic>> processedApplications = [];
       
       for (var app in applicationsData) {
+        debugPrint('📊 Processing application: ${app['application_id']}');
+        debugPrint('📧 Applicant email from DB: ${app['applicant_email']}');
+        debugPrint('👤 Applicant name from DB: ${app['applicant_name']}');
+        
         try {
           // Fetch project details
           final projectData = await _supabase
