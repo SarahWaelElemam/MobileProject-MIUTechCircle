@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
 import 'login_page.dart';
 
 class ResetPasswordWithOtpPage extends StatefulWidget {
@@ -27,6 +29,12 @@ class _ResetPasswordWithOtpPageState extends State<ResetPasswordWithOtpPage> {
     super.dispose();
   }
 
+  String _hashPassword(String password) {
+    final bytes = utf8.encode(password);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
+  }
+
   Future<void> _handleResetPassword() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -36,55 +44,173 @@ class _ResetPasswordWithOtpPageState extends State<ResetPasswordWithOtpPage> {
     setState(() => _isLoading = true);
 
     try {
-      // Get the user from auth.users table
-      final authUsers = await Supabase.instance.client
-          .from('auth.users')
-          .select('id')
-          .eq('email', widget.email)
-          .maybeSingle()
-          .catchError((_) => null);
+      final newPassword = _newPasswordController.text.trim();
+      
+      print("========================================");
+      print("🔄 Starting password reset for: ${widget.email}");
+      print("========================================");
 
-      // Since we can't directly update auth password without current session,
-      // we'll use a workaround: Sign in with a temporary mechanism or
-      // use Supabase admin API (requires server-side implementation)
-      
-      // For now, we'll simulate password update by updating user metadata
-      // In production, you should implement a server-side function or
-      // use Supabase Admin API
-      
-      // Temporary solution: Show success and ask user to contact admin
-      // OR implement server-side password reset function
-      
-      if (!mounted) return;
-      
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            '✅ Password reset request submitted!\n\n'
-            'Your password will be updated shortly.\n'
-            'Please try logging in with your new password in a few moments.',
+      // Method 1: Try using RPC function
+      try {
+        print("📞 Attempting RPC function: reset_user_password");
+        
+        final response = await Supabase.instance.client.rpc(
+          'reset_user_password',
+          params: {
+            'user_email': widget.email,
+            'new_password': newPassword,
+          },
+        );
+        
+        print("📋 RPC Response: $response");
+        
+        if (response != null && response['success'] == true) {
+          print("✅ Password reset via RPC successful!");
+          
+          if (!mounted) return;
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text(
+                '✅ Password successfully reset!\n\n'
+                'You can now login with your new password.',
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+
+          await Future.delayed(const Duration(seconds: 2));
+
+          if (!mounted) return;
+          navigator.pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+            (route) => false,
+          );
+          return;
+        } else {
+          print("⚠️ RPC returned error: ${response?['error']}");
+          throw Exception(response?['error'] ?? 'RPC function failed');
+        }
+      } catch (rpcError) {
+        print("❌ RPC Error: $rpcError");
+        print("🔄 Trying alternative method...");
+        
+        // Method 2: Try alternative RPC function
+        try {
+          print("📞 Attempting alternative RPC: update_auth_password");
+          
+          final response2 = await Supabase.instance.client.rpc(
+            'update_auth_password',
+            params: {
+              'user_email': widget.email,
+              'new_password': newPassword,
+            },
+          );
+          
+          print("📋 Alternative RPC Response: $response2");
+          
+          if (response2 != null && response2['success'] == true) {
+            print("✅ Password reset via alternative RPC successful!");
+            
+            if (!mounted) return;
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text(
+                  '✅ Password successfully reset!\n\n'
+                  'You can now login with your new password.',
+                ),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 3),
+              ),
+            );
+
+            await Future.delayed(const Duration(seconds: 2));
+
+            if (!mounted) return;
+            navigator.pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const LoginPage()),
+              (route) => false,
+            );
+            return;
+          }
+        } catch (rpc2Error) {
+          print("❌ Alternative RPC Error: $rpc2Error");
+          print("🔄 Trying direct database update...");
+        }
+        
+        // Method 3: Direct database update (fallback)
+        print("📝 Attempting direct database update");
+        
+        // Get user record
+        final userRecord = await Supabase.instance.client
+            .from('users')
+            .select('user_id, auth_user_id')
+            .eq('email', widget.email)
+            .maybeSingle();
+
+        if (userRecord == null) {
+          throw 'User not found in database';
+        }
+
+        print("✅ User found: ${userRecord['user_id']}");
+
+        // Update password in users table (hashed)
+        final hashedPassword = _hashPassword(newPassword);
+        await Supabase.instance.client
+            .from('users')
+            .update({
+              'password': hashedPassword,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('email', widget.email);
+        
+        print("✅ Password updated in users table");
+
+        if (!mounted) return;
+        
+        messenger.showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  '⚠️ Password updated in database',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Note: You may need to contact admin to sync with authentication system.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
           ),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 5),
-        ),
-      );
+        );
 
-      await Future.delayed(const Duration(seconds: 2));
+        await Future.delayed(const Duration(seconds: 3));
 
-      if (!mounted) return;
-
-      navigator.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-        (route) => false,
-      );
+        if (!mounted) return;
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+          (route) => false,
+        );
+      }
 
     } catch (e) {
-      print('❌ Error resetting password: $e');
+      print('❌ Fatal Error: $e');
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text('❌ Error: $e'),
+          content: Text(
+            '❌ Error resetting password\n\n$e\n\n'
+            'Please contact support or try again later.',
+          ),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
         ),
       );
     }
