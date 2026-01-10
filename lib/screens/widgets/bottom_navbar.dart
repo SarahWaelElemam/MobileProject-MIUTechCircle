@@ -8,12 +8,14 @@ import 'package:flutter_application_1/screens/HomePage.dart';
 class BottomNavbar extends StatelessWidget {
   final int? currentUserId;
   final int currentIndex;
+  final Function(Map<String, dynamic>?)? onAddPostReturn;
 
-  const BottomNavbar({
-    super.key,
-    this.currentUserId,
-    this.currentIndex = 0,
-  });
+const BottomNavbar({
+    Key? key,
+    required this.currentUserId,
+    required this.currentIndex,
+    this.onAddPostReturn,
+  }) : super(key: key);
 void _onItemTapped(BuildContext context, int index) {
   // Handle navigation based on index
   switch (index) {
@@ -173,14 +175,15 @@ child: IconButton(
   onPressed: () async {
     // Navigate to Add Post Screen and wait for result
     final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AddPostScreen(
-          currentUserId: currentUserId,
-        ),
-      ),
-    );
-    
+  context,
+  MaterialPageRoute(
+    builder: (context) => AddPostScreen(currentUserId: currentUserId),
+  ),
+).then((result) {
+  if (onAddPostReturn != null) {
+    onAddPostReturn!(result as Map<String, dynamic>?);
+  }
+});
     // If post was created successfully, pop to home and it will auto-refresh
     if (result != null && result is Map && result['refresh'] == true) {
       // Pop all routes to get back to home (which will rebuild)

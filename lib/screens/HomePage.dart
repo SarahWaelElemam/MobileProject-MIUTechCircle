@@ -781,10 +781,15 @@ if (_showFreelancingHub) ...[
         ],
       ),
 
-      bottomNavigationBar: BottomNavbar(
-        currentUserId: widget.currentUserId,
-        currentIndex: 0, // Home page is index 0
-      ),
+    bottomNavigationBar: BottomNavbar(
+  currentUserId: widget.currentUserId,
+  currentIndex: 0, // Home page is index 0
+  onAddPostReturn: (result) {
+    if (result != null && result['refresh'] == true) {
+      _refreshFeed();
+    }
+  },
+),
     );
   }
 

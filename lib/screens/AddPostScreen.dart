@@ -354,15 +354,15 @@ try {
   
   await supabase.from('competition_requests').insert(requestData);
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Competition partner request submitted successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context, {'success': true, 'type': 'competition_request'});
-      }
+   if (mounted) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Competition partner request submitted successfully!'),
+      backgroundColor: Colors.green,
+    ),
+  );
+  Navigator.pop(context, {'success': true, 'type': 'competition_request', 'refresh': true});
+}
     } catch (e) {
       print('Error creating competition request: $e');
       if (mounted) {
@@ -424,15 +424,15 @@ try {
 
       await supabase.from('announcement').insert(announcementData);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Announcement scheduled successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context, {'success': true, 'type': 'announcement'});
-      }
+   if (mounted) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Announcement scheduled successfully!'),
+      backgroundColor: Colors.green,
+    ),
+  );
+  Navigator.pop(context, {'success': true, 'type': 'announcement', 'refresh': true});
+}
     } else {
       // ========================================
       // INSERT INTO POSTS TABLE (Regular Post)
@@ -493,15 +493,15 @@ try {
 
       await supabase.from('posts').insert(postData);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Post created successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context, {'success': true, 'type': 'post'});
-      }
+if (mounted) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Post created successfully!'),
+      backgroundColor: Colors.green,
+    ),
+  );
+  Navigator.pop(context, {'success': true, 'type': 'post', 'refresh': true});
+}
     }
   } catch (e) {
     print('Error creating post: $e');
