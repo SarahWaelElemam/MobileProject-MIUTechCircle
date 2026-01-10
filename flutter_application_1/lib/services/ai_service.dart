@@ -1,0 +1,96 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
+
+class AIService {
+  // TODO: Replace with your actual OpenAI API Key
+  static const String _apiKey =
+      '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';
+  static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
+
+  static Future<Map<String, dynamic>> analyzeApplication({
+    required List<String> userSkills,
+    required String introduction,
+    required List<String> projectSkills,
+    required String projectDescription,
+  }) async {
+    try {
+      if (_apiKey == 'YOUR_OPENAI_API_KEY_HERE') {
+        debugPrint('⚠️ OpenAI API Key is missing');
+        return {'score': 0.0, 'reason': 'API Key missing'};
+      }
+
+      final prompt =
+          '''
+      You are an AI recruiter. Analyze the following job application against the project requirements.
+      
+      Project Description: "$projectDescription"
+      Required Skills: ${projectSkills.join(', ')}
+      
+      Applicant Skills: ${userSkills.join(', ')}
+      Applicant Introduction: "$introduction"
+      
+      Task:
+      1. Compare the applicant's skills and introduction to the project requirements.
+      2. Provide a match score from 0.0 to 5.0 (float).
+      3. Provide a concise 1-sentence reason for the score.
+      
+      Return ONLY a JSON object in this format:
+      {
+        "score": 4.5,
+        "reason": "Strong skill match but lacks mentioned experience in..."
+      }
+      ''';
+
+      final response = await http.post(
+        Uri.parse(_baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': 'gpt-4o-mini',
+          'messages': [
+            {
+              'role': 'system',
+              'content': 'You are a helpful assistant that outputs only JSON.',
+            },
+            {'role': 'user', 'content': prompt},
+          ],
+          'temperature': 0.7,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final content = data['choices'][0]['message']['content'];
+
+        // Clean up code blocks if present
+        final cleanContent = content
+            .toString()
+            .replaceAll('```json', '')
+            .replaceAll('```', '')
+            .trim();
+
+        try {
+          final result = jsonDecode(cleanContent);
+          return {
+            'score': (result['score'] as num).toDouble(),
+            'reason': result['reason'].toString(),
+          };
+        } catch (e) {
+          debugPrint('❌ Error parsing AI response: $e');
+          return {'score': 0.0, 'reason': 'Error parsing AI response'};
+        }
+      } else {
+        debugPrint(
+          '❌ OpenAI API Error: ${response.statusCode} - ${response.body}',
+        );
+        return {'score': 0.0, 'reason': 'AI Analysis Failed'};
+      }
+    } catch (e) {
+      debugPrint('❌ AI Service Error: $e');
+      return {'score': 0.0, 'reason': 'Service Error'};
+    }
+  }
+}

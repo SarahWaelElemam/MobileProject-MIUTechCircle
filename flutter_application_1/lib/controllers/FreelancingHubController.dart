@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/FreelanceProjectModel.dart';
 import '../models/FreelanceApplicationModel.dart';
+import '../services/ai_service.dart';
 
 class FreelancingHubController {
   static final _supabase = Supabase.instance.client;
@@ -364,6 +365,56 @@ class FreelancingHubController {
 
       debugPrint('✅ No existing application, proceeding with insert...');
 
+      // ---------------------------------------------------------
+      // AI Analysis: Calculate Score on Apply
+      // ---------------------------------------------------------
+      double aiScore = 0.0;
+      String aiReason = '';
+
+      try {
+        // 1. Fetch Project Details
+        final projectData = await _supabase
+            .from('freelance_projects')
+            .select('skills_needed, description')
+            .eq('project_id', projectId)
+            .single();
+
+        final projectSkills = List<String>.from(
+          projectData['skills_needed'] ?? [],
+        );
+        final projectDesc = projectData['description']?.toString() ?? '';
+
+        // 2. Fetch User Skills
+        List<String> userSkills = [];
+        if (numericUserId != null) {
+          final skillsData = await _supabase
+              .from('skills')
+              .select('name')
+              .eq('user_id', numericUserId);
+
+          if (skillsData != null) {
+            userSkills = (skillsData as List)
+                .map((e) => e['name'].toString())
+                .toList();
+          }
+        }
+
+        // 3. Call AI Service
+        debugPrint('🤖 Calling AI Service for analysis...');
+        final analysis = await AIService.analyzeApplication(
+          userSkills: userSkills,
+          introduction: introduction,
+          projectSkills: projectSkills,
+          projectDescription: projectDesc,
+        );
+
+        aiScore = analysis['score'] ?? 0.0;
+        aiReason = analysis['reason'] ?? '';
+        debugPrint('🤖 AI Result: Score=$aiScore, Reason=$aiReason');
+      } catch (aiError) {
+        debugPrint('⚠️ AI Analysis failed (skipping): $aiError');
+      }
+
       // Insert application
       final insertData = {
         'project_id': projectId,
@@ -374,7 +425,8 @@ class FreelancingHubController {
         'introduction': introduction,
         'status': 'pending',
         'applied_at': DateTime.now().toIso8601String(),
-        // 'match_score': 0.0 // Optional: can be calculated later
+        'match_score': aiScore,
+        'ai_feedback': aiReason,
       };
 
       debugPrint('📤 Inserting: $insertData');
@@ -405,6 +457,8 @@ class FreelancingHubController {
             introduction: introduction,
             status: 'pending',
             appliedAt: DateTime.now(),
+            matchScore: aiScore,
+            aiFeedback: aiReason,
           );
         }
 
@@ -479,12 +533,91 @@ class FreelancingHubController {
         }
       }
 
-      double score = (matchCount / requiredSkills.length) * 100;
-      debugPrint('✅ Calculated Score: $score%');
+      // Convert ratio to 5-star scale
+      double score = (matchCount / requiredSkills.length) * 5.0;
+      debugPrint('✅ Calculated Score: $score/5.0');
       return score;
     } catch (e) {
       debugPrint('❌ Error calculating skill score: \$e');
       return 0.0;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> recalculateApplicationScore(
+    String applicationId,
+    String projectId,
+    String applicantUuid,
+    String introduction,
+  ) async {
+    try {
+      debugPrint('🔄 Recalculating score for App: $applicationId');
+
+      // 1. Fetch Project Details
+      final projectData = await _supabase
+          .from('freelance_projects')
+          .select('skills_needed, description')
+          .eq('project_id', projectId)
+          .single();
+
+      final projectSkills = List<String>.from(
+        projectData['skills_needed'] ?? [],
+      );
+      final projectDesc = projectData['description']?.toString() ?? '';
+
+      // 2. Fetch User Skills (using UUID from 'users' table or direct linkage if needed)
+      // We need to resolve UUID to Int ID if skills table uses Int ID.
+      int? numericUserId;
+
+      try {
+        final userData = await _supabase
+            .from('users')
+            .select('user_id')
+            .eq('auth_user_id', applicantUuid)
+            .maybeSingle();
+
+        if (userData != null) {
+          numericUserId = userData['user_id'] as int?;
+        }
+      } catch (e) {
+        // Fallback or ignore
+      }
+
+      List<String> userSkills = [];
+      if (numericUserId != null) {
+        final skillsData = await _supabase
+            .from('skills')
+            .select('name')
+            .eq('user_id', numericUserId);
+
+        if (skillsData != null) {
+          userSkills = (skillsData as List)
+              .map((e) => e['name'].toString())
+              .toList();
+        }
+      }
+
+      // 3. Call AI Service
+      final analysis = await AIService.analyzeApplication(
+        userSkills: userSkills,
+        introduction: introduction,
+        projectSkills: projectSkills,
+        projectDescription: projectDesc,
+      );
+
+      final newScore = analysis['score'] ?? 0.0;
+      final newFeedback = analysis['reason'] ?? '';
+
+      // 4. Update Database
+      await _supabase
+          .from('freelance_applications')
+          .update({'match_score': newScore, 'ai_feedback': newFeedback})
+          .eq('application_id', applicationId);
+
+      debugPrint('✅ Score updated to $newScore');
+      return {'score': newScore, 'feedback': newFeedback};
+    } catch (e) {
+      debugPrint('❌ Error recalculating score: $e');
+      return null;
     }
   }
 }

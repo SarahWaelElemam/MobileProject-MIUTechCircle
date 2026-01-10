@@ -12,6 +12,7 @@ class FreelanceApplicationModel {
   final String? applicantEmail;
   final String? applicantName;
   final double? matchScore;
+  final String? aiFeedback;
 
   FreelanceApplicationModel({
     required this.applicationId,
@@ -25,6 +26,7 @@ class FreelanceApplicationModel {
     this.applicantEmail,
     this.applicantName,
     this.matchScore,
+    this.aiFeedback,
   });
 
   factory FreelanceApplicationModel.fromMap(Map<String, dynamic> map) {
@@ -46,6 +48,7 @@ class FreelanceApplicationModel {
       matchScore: map['match_score'] != null
           ? double.tryParse(map['match_score'].toString())
           : null,
+      aiFeedback: map['ai_feedback']?.toString(),
     );
   }
 
@@ -61,6 +64,7 @@ class FreelanceApplicationModel {
       'applicant_email': applicantEmail,
       'applicant_name': applicantName,
       'match_score': matchScore,
+      'ai_feedback': aiFeedback,
     };
   }
 
@@ -76,6 +80,7 @@ class FreelanceApplicationModel {
     String? applicantEmail,
     String? applicantName,
     double? matchScore,
+    String? aiFeedback,
   }) {
     return FreelanceApplicationModel(
       applicationId: applicationId ?? this.applicationId,
@@ -89,6 +94,7 @@ class FreelanceApplicationModel {
       applicantEmail: applicantEmail ?? this.applicantEmail,
       applicantName: applicantName ?? this.applicantName,
       matchScore: matchScore ?? this.matchScore,
+      aiFeedback: aiFeedback ?? this.aiFeedback,
     );
   }
 

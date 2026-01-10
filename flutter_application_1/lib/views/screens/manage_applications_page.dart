@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../../controllers/FreelancingHubController.dart';
 
+enum SortOption { date, score }
+
 class ManageApplicationsPage extends StatefulWidget {
   const ManageApplicationsPage({super.key});
 
@@ -15,6 +17,8 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
   List<Map<String, dynamic>> _applications = [];
   bool _isLoading = true;
   String? _errorMessage;
+  SortOption _currentSort = SortOption.date;
+  final Map<String, bool> _recalculatingApps = {};
 
   @override
   void initState() {
@@ -32,9 +36,12 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
       final applicationsData = await _supabase
           .from('freelance_applications')
           .select(
-            'application_id, project_id, applicant_id, applicant_uuid, applicant_email, applicant_name, introduction, status, applied_at',
+            'application_id, project_id, applicant_id, applicant_uuid, applicant_email, applicant_name, introduction, status, applied_at, match_score, ai_feedback',
           )
-          .order('applied_at', ascending: false);
+          .order(
+            _currentSort == SortOption.score ? 'match_score' : 'applied_at',
+            ascending: false,
+          );
 
       debugPrint('✅ Found ${(applicationsData as List).length} applications');
 
@@ -51,7 +58,15 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
 
           // AI Feature: Calculate Score
           double aiScore = 0.0;
-          if (projectData != null && projectData['skills_needed'] != null) {
+          String aiFeedback = '';
+
+          // Prefer saved DB score if available
+          if (app['match_score'] != null) {
+            aiScore = (app['match_score'] as num).toDouble();
+            aiFeedback = app['ai_feedback'] ?? '';
+          } else if (projectData != null &&
+              projectData['skills_needed'] != null) {
+            // Fallback to local calculation
             final skillsNeeded = List<String>.from(
               projectData['skills_needed'],
             );
@@ -100,6 +115,7 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
             'company_name': projectData?['company_name'] ?? 'Unknown Company',
             'company_logo': projectData?['company_logo'],
             'ai_score': aiScore,
+            'ai_feedback': aiFeedback,
           });
         } catch (e) {
           debugPrint('⚠️ Error loading project for application: $e');
@@ -119,6 +135,7 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
             'company_name': 'Unknown Company',
             'company_logo': null,
             'ai_score': 0.0,
+            'ai_feedback': '',
           });
         }
       }
@@ -146,6 +163,25 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          PopupMenuButton<SortOption>(
+            icon: const Icon(Icons.sort),
+            onSelected: (SortOption result) {
+              setState(() {
+                _currentSort = result;
+              });
+              _loadApplications();
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<SortOption>>[
+              const PopupMenuItem<SortOption>(
+                value: SortOption.date,
+                child: Text('Sort by Date'),
+              ),
+              const PopupMenuItem<SortOption>(
+                value: SortOption.score,
+                child: Text('Sort by AI Score'),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadApplications,
@@ -236,7 +272,55 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
     );
   }
 
+  Future<void> _handleRecalculate(
+    String appId,
+    Map<String, dynamic> app,
+  ) async {
+    setState(() {
+      _recalculatingApps[appId] = true;
+    });
+
+    try {
+      final result = await FreelancingHubController.recalculateApplicationScore(
+        appId,
+        app['project_id'],
+        app['applicant_id']
+            .toString(), // Treating fallback ID as UUID string if needed
+        app['introduction'],
+      );
+
+      if (result != null) {
+        setState(() {
+          // Update the local list directly so UI reflects change immediately
+          final index = _applications.indexWhere(
+            (element) => element['application_id'] == appId,
+          );
+          if (index != -1) {
+            _applications[index]['ai_score'] = result['score'];
+            _applications[index]['ai_feedback'] = result['feedback'];
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Score updated successfully')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to recalculate: $e')));
+      }
+    } finally {
+      setState(() {
+        _recalculatingApps[appId] = false;
+      });
+    }
+  }
+
   Widget _buildApplicationCard(Map<String, dynamic> application) {
+    final applicationId = application['application_id'] as String;
     final status = application['status'] as String? ?? 'pending';
     final appliedAtStr = application['applied_at'] as String?;
     final introduction =
@@ -252,6 +336,7 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
         application['company_name'] as String? ?? 'Unknown Company';
     final companyLogo = application['company_logo'] as String?;
     final double aiScore = application['ai_score'] as double? ?? 0.0;
+    final String? aiFeedback = application['ai_feedback'] as String?;
 
     DateTime appliedAt;
     try {
@@ -438,18 +523,18 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: aiScore >= 70
+                        color: aiScore >= 3.5
                             ? Colors.green.withOpacity(0.1)
-                            : (aiScore >= 40
+                            : (aiScore >= 2.0
                                   ? Colors.orange.withOpacity(0.1)
                                   : (aiScore > 0
                                         ? Colors.red.withOpacity(0.1)
                                         : Colors.grey.withOpacity(0.1))),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: aiScore >= 70
+                          color: aiScore >= 3.5
                               ? Colors.green
-                              : (aiScore >= 40
+                              : (aiScore >= 2.0
                                     ? Colors.orange
                                     : (aiScore > 0 ? Colors.red : Colors.grey)),
                           width: 1,
@@ -458,11 +543,11 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                       child: Row(
                         children: [
                           Icon(
-                            Icons.auto_awesome,
+                            Icons.star,
                             size: 14,
-                            color: aiScore >= 70
+                            color: aiScore >= 3.5
                                 ? Colors.green
-                                : (aiScore >= 40
+                                : (aiScore >= 2.0
                                       ? Colors.orange
                                       : (aiScore > 0
                                             ? Colors.red
@@ -470,13 +555,13 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            '${aiScore.toInt()}% Match',
+                            '${aiScore.toStringAsFixed(1)} / 5.0',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
-                              color: aiScore >= 70
+                              color: aiScore >= 3.5
                                   ? Colors.green
-                                  : (aiScore >= 40
+                                  : (aiScore >= 2.0
                                         ? Colors.orange
                                         : (aiScore > 0
                                               ? Colors.red
@@ -519,6 +604,53 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                       fontSize: 13,
                       color: Colors.grey[700],
                       height: 1.5,
+                    ),
+                  ),
+                ),
+                if (aiFeedback != null && aiFeedback.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Text(
+                    'AI Feedback:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                    ),
+                    child: Text(
+                      aiFeedback,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.blue[800],
+                        fontStyle: FontStyle.italic,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: (_recalculatingApps[applicationId] == true)
+                        ? null
+                        : () => _handleRecalculate(applicationId, application),
+                    icon: (_recalculatingApps[applicationId] == true)
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh, size: 16),
+                    label: Text(
+                      (_recalculatingApps[applicationId] == true)
+                          ? 'Analyzing...'
+                          : 'Recalculate Score',
                     ),
                   ),
                 ),
