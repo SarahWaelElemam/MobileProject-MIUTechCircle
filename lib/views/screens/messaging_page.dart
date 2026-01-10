@@ -211,29 +211,27 @@ if (existingConv.isEmpty) {
   print('🎯 Loading chat with ${user['name']} (user ${user['user_id']}):');
   print('   My request_status from DB: $myRequestStatus');
   print('   Am I friends with them: $isFriend');
-  
-  if (myRequestStatus == null) {
-    // ✅ CRITICAL FIX: If no settings exist BUT conversation has messages,
-    // check who sent the FIRST message to determine sender vs receiver
-    final firstMessage = existingConv['first_message_sender_id'];
+  if (myRequestStatus != null) {
+    // Use existing status from database
+    requestStatus = myRequestStatus;
+    print('   ✅ Using DB status: $requestStatus');
+  } else {
+    // No settings exist - determine based on who sent first message
+    final firstMessageSenderId = existingConv['first_message_sender_id'];
     
-    if (firstMessage == null) {
-      // No messages yet - default based on friendship
-      requestStatus = isFriend ? 'accepted' : 'pending';
-      print('   ⚠️ No messages yet! Using default: $requestStatus');
-    } else if (firstMessage == currentUserId) {
-      // I sent the first message, so I'm the SENDER - always accepted for me
+    if (firstMessageSenderId == null) {
+      // No messages yet
+      requestStatus = 'none';
+      print('   ⚠️ No messages yet! Status: none');
+    } else if (firstMessageSenderId == currentUserId) {
+      // ✅ I sent the first message = I'm the SENDER = always accepted for me
       requestStatus = 'accepted';
       print('   ✅ I am the SENDER (sent first message) - status: accepted');
     } else {
-      // They sent the first message, so I'm the RECEIVER - pending unless friends
+      // ✅ They sent first message = I'm the RECEIVER = pending unless friends
       requestStatus = isFriend ? 'accepted' : 'pending';
-      print('   ✅ I am the RECEIVER - status: $requestStatus');
+      print('   ✅ I am the RECEIVER - status: $requestStatus (friends: $isFriend)');
     }
-  } else {
-    // Use MY status from database
-    requestStatus = myRequestStatus;
-    print('   ✅ Using DB status: $requestStatus');
   }
 }
 
@@ -484,6 +482,33 @@ void updateRequestStatus(int userId, String status) {
   ];
 }
 
+// ✅ NEW: Method to update blocking status
+void updateBlockStatus(int userId, bool isBlocked, bool isBlockedByOther) {
+  state = [
+    for (final chat in state)
+      if (chat.userId == userId)
+        Chat(
+          id: chat.id,
+          name: chat.name,
+          userId: chat.userId,
+          avatarUrl: chat.avatarUrl,
+          lastMessage: chat.lastMessage,
+          conversationId: chat.conversationId,
+          settings: ChatSettings(
+            isMuted: chat.settings.isMuted,
+            isBlocked: isBlocked,
+            isBlockedByOther: isBlockedByOther,
+            isFriend: chat.settings.isFriend,
+          ),
+          unreadCount: chat.unreadCount,
+          lastMessageTime: chat.lastMessageTime,
+          requestStatus: chat.requestStatus,
+        )
+      else
+        chat
+  ];
+}
+
 }
 
 // Provider for chats list
@@ -618,30 +643,35 @@ void initState() {
   });
 }
 
-  Future<void> loadChats() async {
+
+ Future<void> loadChats() async {
+  if (mounted) {
     setState(() => isLoading = true);
-    try {
-      await ref
-    .read(chatsProvider(widget.currentUserId).notifier)
-    .loadChats();
-    } catch (e) {
-      print('Error loading chats: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading users: $e'),
-            backgroundColor: AppColors.primary,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            margin: const EdgeInsets.all(16),
-          ),
-        );
-      }
-    } finally {
+  }
+  
+  try {
+    await ref
+        .read(chatsProvider(widget.currentUserId).notifier)
+        .loadChats();
+  } catch (e) {
+    print('Error loading chats: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error loading users: $e'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
       setState(() => isLoading = false);
     }
   }
-
+}
   Widget buildAvatar(String name, String? avatarUrl, double radius) {
     return buildAvatarHelper(name, avatarUrl, radius);
   }
@@ -662,7 +692,8 @@ void initState() {
       ),
     ),
   ).then((_) {
-    loadChats();
+    // Reload chats when returning from chat room
+    ref.read(chatsProvider(widget.currentUserId).notifier).loadChats();
   });
 }
 
@@ -1443,25 +1474,37 @@ try {
     }
   }
 Future<void> _checkIfBlockedByOther() async {
-    if (conversationId == null) return;
-    
-    try {
-      final otherUserSettings = await supabase
-          .from('conversation_settings')
-          .select('is_blocked')
-          .eq('conversation_id', conversationId!)
-          .eq('user_id', widget.chat.userId)
-          .maybeSingle();
+  if (conversationId == null) return;
+  
+  try {
+    final otherUserSettings = await supabase
+        .from('conversation_settings')
+        .select('is_blocked')
+        .eq('conversation_id', conversationId!)
+        .eq('user_id', widget.chat.userId)
+        .maybeSingle();
 
-      if (otherUserSettings != null && mounted) {
-        setState(() {
-          widget.chat.settings.isBlockedByOther = otherUserSettings['is_blocked'] ?? false;
-        });
-      }
-    } catch (e) {
-      print('Error checking if blocked by other: $e');
+    if (otherUserSettings != null && mounted) {
+      final isBlockedByOther = otherUserSettings['is_blocked'] ?? false;
+      
+      // Update local state
+      setState(() {
+        widget.chat.settings.isBlockedByOther = isBlockedByOther;
+      });
+      
+      // ✅ UPDATE THE PROVIDER
+      ref
+          .read(chatsProvider(currentUserId).notifier)
+          .updateBlockStatus(
+            widget.chat.userId,
+            widget.chat.settings.isBlocked,
+            isBlockedByOther,
+          );
     }
+  } catch (e) {
+    print('Error checking if blocked by other: $e');
   }
+}
   Future<void> findOrCreateConversation() async {
     try {
       final participantsResponse = await supabase
@@ -2365,6 +2408,20 @@ Widget build(BuildContext context) {
   final isBlockedByOther = currentChat.settings.isBlockedByOther;
   final cannotSend = isBlocked || isBlockedByOther;
   final isPending = currentChat.requestStatus == 'pending';
+  
+  // ✅ KEY FIX: Determine if I'm the receiver (they sent first message)
+// ✅ KEY FIX: Determine if I'm the receiver (they sent first message)
+// messages list is sorted by created_at ascending, so first item is the oldest/first message
+final firstMessageSenderId = messages.isNotEmpty ? messages.first.senderId : null;
+final isReceiver = firstMessageSenderId != null && firstMessageSenderId != currentUserId;
+
+print('🔍 Banner Check:');
+print('   isPending: $isPending');
+print('   firstMessageSenderId: $firstMessageSenderId');
+print('   currentUserId: $currentUserId');
+print('   isReceiver: $isReceiver');
+print('   showRequestBanner: ${isPending && isReceiver}');
+  final showRequestBanner = isPending && isReceiver;
     
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -2510,304 +2567,307 @@ Widget build(BuildContext context) {
                         ),
                       ],
                     ),
-                  ),
-                Expanded(
-  child: Column(
-    children: [
-      // ✅ NEW: Show Accept/Decline banner for PENDING requests
-      if (isPending) 
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.blue[50],
-            border: Border(
-              bottom: BorderSide(color: Colors.blue[200]!, width: 1),
-            ),
-          ),
-          child: Column(
-            children: [
-              Text(
-                '${currentChat.name} wants to send you a message',
-                style: TextStyle(
-                  color: Colors.blue[900],
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _declineRequest,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[300],
-                        foregroundColor: Colors.grey[800],
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Decline', style: TextStyle(fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _acceptRequest,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[600],
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      // ✅ Messages area
-      Expanded(
-        child: Stack(
-          children: [
-            messages.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryLight.withOpacity(0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.chat_bubble_outline_rounded,
-                            size: 64,
-                            color: AppColors.primary.withOpacity(0.5),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        Text(
-                          'No messages yet',
-                          style: TextStyle(
-                            fontSize: 20,
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          cannotSend ? 'Messaging is not available' : 'Start the conversation!',
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
                   )
-                : ListView.builder(
-                    controller: scrollController,
-                    reverse: true,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    itemCount: messages.length,
-                    itemBuilder: (context, index) {
-                      final message = messages[messages.length - 1 - index];
-                      final isMe = message.senderId == currentUserId;
-                      
-                      bool showDateSeparator = false;
-                      if (index == messages.length - 1) {
-                        showDateSeparator = true;
-                      } else {
-                        final prevMessage = messages[messages.length - 2 - index];
-                        if (message.createdAt.day != prevMessage.createdAt.day) {
-                          showDateSeparator = true;
-                        }
-                      }
-                      
-                      return Column(
-                        children: [
-                          if (showDateSeparator)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 20),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: AppColors.textSecondary.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(12),
+          
+               ,
+      // ✅ Messages area
+     Expanded(
+                  child: Column(
+                    children: [
+                      // ✅ Show Accept/Decline banner for RECEIVER with pending status
+                      if (showRequestBanner) 
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            border: Border(
+                              bottom: BorderSide(color: Colors.blue[200]!, width: 1),
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                '${currentChat.name} wants to send you a message',
+                                style: TextStyle(
+                                  color: Colors.blue[900],
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                child: Text(
-                                  _formatDate(message.createdAt),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                    color: AppColors.textSecondary,
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: _declineRequest,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.grey[300],
+                                        foregroundColor: Colors.grey[800],
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                      ),
+                                      child: const Text('Decline', style: TextStyle(fontWeight: FontWeight.w600)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: _acceptRequest,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.blue[600],
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                      ),
+                                      child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.w600)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      // ✅ Messages area
+                      Expanded(
+                        child: Stack(
+                          children: [
+                            messages.isEmpty
+                                ? Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(24),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primaryLight.withOpacity(0.1),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            Icons.chat_bubble_outline_rounded,
+                                            size: 64,
+                                            color: AppColors.primary.withOpacity(0.5),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        Text(
+                                          'No messages yet',
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            color: AppColors.textPrimary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          cannotSend ? 'Messaging is not available' : 'Start the conversation!',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : ListView.builder(
+                                    controller: scrollController,
+                                    reverse: true,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                                    itemCount: messages.length,
+                                    itemBuilder: (context, index) {
+                                      final message = messages[messages.length - 1 - index];
+                                      final isMe = message.senderId == currentUserId;
+                                      
+                                      bool showDateSeparator = false;
+                                      if (index == messages.length - 1) {
+                                        showDateSeparator = true;
+                                      } else {
+                                        final prevMessage = messages[messages.length - 2 - index];
+                                        if (message.createdAt.day != prevMessage.createdAt.day) {
+                                          showDateSeparator = true;
+                                        }
+                                      }
+                                      
+                                      return Column(
+                                        children: [
+                                          if (showDateSeparator)
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 20),
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.textSecondary.withOpacity(0.08),
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: Text(
+                                                  _formatDate(message.createdAt),
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: AppColors.textSecondary,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          _buildMessageBubble(message, isMe),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                            if (cannotSend)
+                              Positioned(
+                                bottom: 0,
+                                left: 0,
+                                right: 0,
+                                child: Container(
+                                  margin: const EdgeInsets.all(20),
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surface,
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.06),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        isBlockedByOther ? Icons.cancel_rounded : Icons.block_rounded, 
+                                        color: isBlockedByOther ? Colors.red[700] : AppColors.textSecondary, 
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Flexible(
+                                        child: Text(
+                                          isBlockedByOther 
+                                              ? 'You cannot send messages '
+                                              : 'You cannot send messages to a blocked user',
+                                          style: TextStyle(
+                                            color: isBlockedByOther ? Colors.red[700] : AppColors.textSecondary,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
-                            ),
-                          _buildMessageBubble(message, isMe),
-                        ],
-                      );
-                    },
-                  ),
-            if (cannotSend)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  margin: const EdgeInsets.all(20),
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        isBlockedByOther ? Icons.cancel_rounded : Icons.block_rounded, 
-                        color: isBlockedByOther ? Colors.red[700] : AppColors.textSecondary, 
-                        size: 16,
-                      ),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          isBlockedByOther 
-                              ? 'You cannot send messages '
-                              : 'You cannot send messages to a blocked user',
-                          style: TextStyle(
-                            color: isBlockedByOther ? Colors.red[700] : AppColors.textSecondary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          textAlign: TextAlign.center,
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-          ],
-        ),
-      ),
-    ],
-  ),
-),
                 // ✅ FIXED: Hide input field completely for pending requests
-if (!isPending)
-  Container(
-    decoration: BoxDecoration(
-      color: AppColors.surface,
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.04),
-          blurRadius: 8,
-          offset: const Offset(0, -2),
-        ),
-      ],
-    ),
-    child: SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            IconButton(
-              onPressed: cannotSend ? null : openAttachments,
-              icon: Icon(
-                Icons.add_circle_rounded,
-                color: cannotSend ? AppColors.textSecondary.withOpacity(0.3) : AppColors.primary,
-                size: 28,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: cannotSend ? AppColors.background.withOpacity(0.5) : AppColors.background,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: cannotSend ? AppColors.divider.withOpacity(0.5) : AppColors.divider,
-                    width: 1,
-                  ),
-                ),
-                child: TextField(
-                  controller: messageController,
-                  style: TextStyle(fontSize: 15, color: AppColors.textPrimary),
-                  decoration: InputDecoration(
-                    hintText: cannotSend
-                        ? (isBlockedByOther ? "You are blocked" : "Cannot send messages")
-                        : "Type a message...",
-                    hintStyle: TextStyle(
-                      color: cannotSend 
-                          ? AppColors.textSecondary.withOpacity(0.5) 
-                          : AppColors.textSecondary,
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  ),
-                  maxLines: 5,
-                  minLines: 1,
-                  textCapitalization: TextCapitalization.sentences,
-                  onSubmitted: (_) => sendMessage(),
-                  enabled: !cannotSend && !isSending,
-                  readOnly: cannotSend,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Material(
-              color: cannotSend 
-                  ? AppColors.textSecondary.withOpacity(0.3)
-                  : (isSending ? AppColors.textSecondary : AppColors.primary),
-              shape: const CircleBorder(),
-              child: InkWell(
-                onTap: (cannotSend || isSending) ? null : sendMessage,
-                customBorder: const CircleBorder(),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: isSending
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : Icon(
-                          Icons.send_rounded,
-                          color: cannotSend 
-                              ? AppColors.textSecondary.withOpacity(0.5)
-                              : Colors.white,
-                          size: 22,
+                if (!showRequestBanner)
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 8,
+                          offset: const Offset(0, -2),
                         ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  ),
+                      ],
+                    ),
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              onPressed: cannotSend ? null : openAttachments,
+                              icon: Icon(
+                                Icons.add_circle_rounded,
+                                color: cannotSend ? AppColors.textSecondary.withOpacity(0.3) : AppColors.primary,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: cannotSend ? AppColors.background.withOpacity(0.5) : AppColors.background,
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                    color: cannotSend ? AppColors.divider.withOpacity(0.5) : AppColors.divider,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: TextField(
+                                  controller: messageController,
+                                  style: TextStyle(fontSize: 15, color: AppColors.textPrimary),
+                                  decoration: InputDecoration(
+                                    hintText: cannotSend
+                                        ? (isBlockedByOther ? "You are blocked" : "Cannot send messages")
+                                        : "Type a message...",
+                                    hintStyle: TextStyle(
+                                      color: cannotSend 
+                                          ? AppColors.textSecondary.withOpacity(0.5) 
+                                          : AppColors.textSecondary,
+                                    ),
+                                    border: InputBorder.none,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                  ),
+                                  maxLines: 5,
+                                  minLines: 1,
+                                  textCapitalization: TextCapitalization.sentences,
+                                  onSubmitted: (_) => sendMessage(),
+                                  enabled: !cannotSend && !isSending,
+                                  readOnly: cannotSend,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Material(
+                              color: cannotSend 
+                                  ? AppColors.textSecondary.withOpacity(0.3)
+                                  : (isSending ? AppColors.textSecondary : AppColors.primary),
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                onTap: (cannotSend || isSending) ? null : sendMessage,
+                                customBorder: const CircleBorder(),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: isSending
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        )
+                                      : Icon(
+                                          Icons.send_rounded,
+                                          color: cannotSend 
+                                              ? AppColors.textSecondary.withOpacity(0.5)
+                                              : Colors.white,
+                                          size: 22,
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
     );
