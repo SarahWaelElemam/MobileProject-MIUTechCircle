@@ -166,35 +166,88 @@ class ChatsNotifier extends StateNotifier<List<Chat>> {
   }
 
   void _setupRealtimeSubscriptions() {
-    _messagesChannel = supabase
-        .channel('chats_messages_$currentUserId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'messages',
-          callback: (payload) {
-            print('🔔 New message detected, refreshing chats...');
-            loadChats();
-          },
-        )
-        .subscribe();
+  _messagesChannel = supabase
+      .channel('chats_messages_$currentUserId')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'messages',
+        callback: (payload) async {
+          print('🔔 New message detected: ${payload.newRecord}');
+          
+          try {
+            final newMessage = payload.newRecord;
+            final conversationId = newMessage['conversation_id'] as String;
+            final senderId = newMessage['sender_id'] as int;
+            final content = newMessage['content'] as String? ?? '';
+            final attachmentName = newMessage['attachment_name'] as String?;
+            
+            // Find the other user in this conversation
+            final participants = await supabase
+                .from('conversation_participants')
+                .select('user_id')
+                .eq('conversation_id', conversationId)
+                .neq('user_id', currentUserId);
+            
+            if ((participants as List).isEmpty) {
+              print('⚠️ No other participants found');
+              return;
+            }
+            
+            final otherUserId = participants[0]['user_id'] as int;
+            
+            // Determine the message to display
+            final displayMessage = attachmentName != null 
+                ? '📎 $attachmentName' 
+                : content;
+            
+            // Find current chat to get unread count
+            final currentChat = state.firstWhere(
+              (c) => c.userId == otherUserId,
+              orElse: () => Chat(
+                id: '',
+                name: '',
+                userId: 0,
+                lastMessage: '',
+                settings: ChatSettings(),
+                unreadCount: 0,
+              ),
+            );
+            
+            // Update last message and increment unread ONLY if message is from OTHER user
+            if (senderId != currentUserId) {
+              print('📩 Message from other user - incrementing unread count');
+              updateLastMessage(
+                otherUserId,
+                displayMessage,
+                unreadCount: currentChat.unreadCount + 1,
+              );
+            } else {
+              print('📤 Message from me - just updating last message');
+              updateLastMessage(otherUserId, displayMessage);
+            }
+          } catch (e) {
+            print('❌ Error handling new message: $e');
+          }
+        },
+      )
+      .subscribe();
 
-    _settingsChannel = supabase
-        .channel('chats_settings_$currentUserId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'conversation_settings',
-          callback: (payload) {
-            print('🔔 Settings changed, refreshing chats...');
-            loadChats();
-          },
-        )
-        .subscribe();
-        
-    print('✅ Real-time subscriptions active for user $currentUserId');
-  }
-
+  _settingsChannel = supabase
+      .channel('chats_settings_$currentUserId')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'conversation_settings',
+        callback: (payload) {
+          print('🔔 Settings changed, refreshing chats...');
+          loadChats(); // Keep this as-is since settings changes are infrequent
+        },
+      )
+      .subscribe();
+      
+  print('✅ Real-time subscriptions active for user $currentUserId');
+}
   @override
   void dispose() {
     _messagesChannel?.unsubscribe();
@@ -296,7 +349,14 @@ return Chat(
     isFriend: isFriend,
   ),
 );
-    }).toList();
+   }).toList()
+  ..sort((a, b) {
+    // Sort by last message time, most recent first
+    if (a.lastMessageTime == null && b.lastMessageTime == null) return 0;
+    if (a.lastMessageTime == null) return 1;
+    if (b.lastMessageTime == null) return -1;
+    return b.lastMessageTime!.compareTo(a.lastMessageTime!);
+  });
     
     // ✅ ADD DEBUG CODE HERE:
     print('📊 LOADED ${state.length} CHATS for user $currentUserId:');
@@ -461,10 +521,11 @@ for (var setting in (mySettings as List)) {
 
 void updateLastMessage(int userId, String message, {int? unreadCount}) {
   final newState = <Chat>[];
+  Chat? updatedChat;
   
   for (final chat in state) {
     if (chat.userId == userId) {
-      newState.add(Chat(
+      updatedChat = Chat(
         id: chat.id,
         name: chat.name,
         userId: chat.userId,
@@ -475,13 +536,23 @@ void updateLastMessage(int userId, String message, {int? unreadCount}) {
         unreadCount: unreadCount ?? chat.unreadCount,
         lastMessageTime: DateTime.now(),
         requestStatus: chat.requestStatus,
-      ));
+      );
+      newState.add(updatedChat);
     } else {
       newState.add(chat);
     }
   }
   
+  // Sort by most recent message first
+  newState.sort((a, b) {
+    if (a.lastMessageTime == null && b.lastMessageTime == null) return 0;
+    if (a.lastMessageTime == null) return 1;
+    if (b.lastMessageTime == null) return -1;
+    return b.lastMessageTime!.compareTo(a.lastMessageTime!);
+  });
+  
   state = newState;
+  print('✅ Updated chat list - ${updatedChat?.name} moved to top');
 }
 
 // ✅ NEW: Method to mark messages as read
