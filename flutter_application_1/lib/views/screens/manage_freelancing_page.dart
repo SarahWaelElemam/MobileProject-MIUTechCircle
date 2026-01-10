@@ -16,8 +16,19 @@ class _ManageFreelancingPageState extends State<ManageFreelancingPage> {
   @override
   void initState() {
     super.initState();
+    
+    // ✅ CRITICAL FIX: Initialize provider to load applications
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<FreelancingHubProvider>().loadProjects();
+      final provider = context.read<FreelancingHubProvider>();
+      
+      if (!provider.isInitialized) {
+        debugPrint('🚀 ManageFreelancing: Initializing provider...');
+        provider.initialize();
+      } else {
+        debugPrint('🔄 ManageFreelancing: Refreshing data...');
+        provider.loadProjects();
+        provider.loadUserApplications();  // ✅ Load applications!
+      }
     });
   }
 
@@ -173,7 +184,8 @@ class _ManageFreelancingPageState extends State<ManageFreelancingPage> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              context.read<FreelancingHubProvider>().loadProjects();
+              // ✅ Use refreshAll() to reload everything including applications
+              context.read<FreelancingHubProvider>().refreshAll();
             },
           ),
         ],
@@ -258,7 +270,7 @@ class _ManageFreelancingPageState extends State<ManageFreelancingPage> {
           }
 
           return RefreshIndicator(
-            onRefresh: () => provider.loadProjects(),
+            onRefresh: () => provider.refreshAll(),  // ✅ Use refreshAll()
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: provider.projects.length,

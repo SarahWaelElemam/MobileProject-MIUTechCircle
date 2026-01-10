@@ -16,8 +16,19 @@ class _SavedFreelanceProjectsPageState extends State<SavedFreelanceProjectsPage>
   @override
   void initState() {
     super.initState();
+    
+    // ✅ CRITICAL FIX: Initialize provider to load applications
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<FreelancingHubProvider>().loadProjects();
+      final provider = context.read<FreelancingHubProvider>();
+      
+      if (!provider.isInitialized) {
+        debugPrint('🚀 SavedProjects: Initializing provider...');
+        provider.initialize();
+      } else {
+        debugPrint('🔄 SavedProjects: Refreshing data...');
+        provider.loadProjects();
+        provider.loadUserApplications();  // ✅ Load applications!
+      }
     });
   }
 
@@ -71,7 +82,7 @@ class _SavedFreelanceProjectsPageState extends State<SavedFreelanceProjectsPage>
           }
 
           return RefreshIndicator(
-            onRefresh: () => provider.loadProjects(),
+            onRefresh: () => provider.refreshAll(),  // ✅ Use refreshAll()
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: savedProjects.length,

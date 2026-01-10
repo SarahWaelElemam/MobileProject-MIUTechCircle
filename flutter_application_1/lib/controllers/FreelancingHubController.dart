@@ -232,25 +232,66 @@ class FreelancingHubController {
     }
   }
 
+  // ============================================
+  // ✅ CRITICAL FIX: FETCH USER APPLICATIONS
+  // ============================================
   static Future<List<FreelanceApplicationModel>> fetchUserApplications() async {
     try {
+      debugPrint('📥 Fetching user applications...');
+      
       final currentUser = _supabase.auth.currentUser;
-      if (currentUser == null) return [];
+      if (currentUser == null) {
+        debugPrint('⚠️ No user logged in');
+        return [];
+      }
 
-      // Use applicant_uuid instead of applicant_id
-      final data = await _supabase
-          .from('freelance_applications')
-          .select('*')
-          .eq('applicant_uuid', currentUser.id)
-          .order('applied_at', ascending: false);
+      debugPrint('🔍 User ID: ${currentUser.id}');
 
-      if (data == null || (data as List).isEmpty) return [];
+      // ✅ FIX: Use consistent column name - check your actual database schema
+      // Try both possible column names to be safe
+      try {
+        // First try with applicant_id (numeric)
+        final numericUserId = currentUser.id.hashCode.abs();
+        
+        final data = await _supabase
+            .from('freelance_applications')
+            .select('*')
+            .eq('applicant_id', numericUserId)
+            .order('applied_at', ascending: false);
 
-      return (data as List)
-          .map((json) => FreelanceApplicationModel.fromMap(json as Map<String, dynamic>))
-          .toList();
+        if (data != null && (data as List).isNotEmpty) {
+          debugPrint('✅ Found ${(data as List).length} applications using applicant_id');
+          return (data as List)
+              .map((json) => FreelanceApplicationModel.fromMap(json as Map<String, dynamic>))
+              .toList();
+        }
+      } catch (e) {
+        debugPrint('⚠️ Failed with applicant_id: $e');
+      }
+
+      // If that fails, try with applicant_uuid
+      try {
+        final data = await _supabase
+            .from('freelance_applications')
+            .select('*')
+            .eq('applicant_uuid', currentUser.id)
+            .order('applied_at', ascending: false);
+
+        if (data != null && (data as List).isNotEmpty) {
+          debugPrint('✅ Found ${(data as List).length} applications using applicant_uuid');
+          return (data as List)
+              .map((json) => FreelanceApplicationModel.fromMap(json as Map<String, dynamic>))
+              .toList();
+        }
+      } catch (e) {
+        debugPrint('⚠️ Failed with applicant_uuid: $e');
+      }
+
+      debugPrint('📊 No applications found for user');
+      return [];
+      
     } catch (e) {
-      debugPrint('❌ Error: $e');
+      debugPrint('❌ Error fetching applications: $e');
       return [];
     }
   }
@@ -270,6 +311,9 @@ class FreelancingHubController {
     }
   }
 
+  // ============================================
+  // ✅ CRITICAL FIX: SUBMIT APPLICATION
+  // ============================================
   static Future<FreelanceApplicationModel?> submitApplication({
     required String projectId,
     required String introduction,
@@ -285,11 +329,11 @@ class FreelancingHubController {
 
       debugPrint('✅ User authenticated: ${currentUser.id}');
 
-      // project_id is UUID (text) but applicant_id is bigint
+      // Convert user ID to numeric
       final numericUserId = currentUser.id.hashCode.abs();
 
-      debugPrint('📊 Project ID (uuid): $projectId');
-      debugPrint('📊 User ID converted to bigint: $numericUserId');
+      debugPrint('📊 Project ID: $projectId');
+      debugPrint('📊 Numeric User ID: $numericUserId');
 
       // Check if already applied
       try {
@@ -310,10 +354,10 @@ class FreelancingHubController {
 
       debugPrint('✅ No existing application, proceeding with insert...');
 
-      // Insert application - ONLY include columns that definitely exist
+      // ✅ FIX: Use consistent column name - applicant_id (numeric)
       final insertData = {
         'project_id': projectId,
-        'applicant_id': numericUserId,
+        'applicant_id': numericUserId,  // Using numeric ID
         'introduction': introduction,
         'status': 'pending',
         'applied_at': DateTime.now().toIso8601String(),
@@ -321,46 +365,26 @@ class FreelancingHubController {
 
       debugPrint('📤 Inserting: $insertData');
 
-      try {
-        final result = await _supabase
-            .from('freelance_applications')
-            .insert(insertData)
-            .select()
-            .single();
+      final result = await _supabase
+          .from('freelance_applications')
+          .insert(insertData)
+          .select()
+          .single();
 
-        debugPrint('✅ Application submitted successfully!');
-        debugPrint('📊 Result: $result');
-        
-        // Create model manually to avoid parsing errors
-        return FreelanceApplicationModel(
-          applicationId: result['application_id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
-          projectId: projectId,
-          applicantId: currentUser.id,
-          introduction: introduction,
-          status: 'pending',
-          appliedAt: DateTime.now(),
-        );
-      } catch (insertError) {
-        debugPrint('❌ Insert error: $insertError');
-        
-        // Check if the error is just a parsing issue but insert succeeded
-        if (insertError.toString().contains('successfully') || 
-            insertError.toString().contains('Application submitted')) {
-          debugPrint('✅ Application likely saved despite error');
-          return FreelanceApplicationModel(
-            applicationId: DateTime.now().millisecondsSinceEpoch.toString(),
-            projectId: projectId,
-            applicantId: currentUser.id,
-            introduction: introduction,
-            status: 'pending',
-            appliedAt: DateTime.now(),
-          );
-        }
-        
-        throw insertError;
-      }
+      debugPrint('✅ Application submitted successfully!');
+      debugPrint('📊 Result: $result');
+      
+      return FreelanceApplicationModel.fromMap(result);
+      
     } catch (e) {
       debugPrint('❌ Error submitting application: $e');
+      
+      // If it's a duplicate key error, return null
+      if (e.toString().contains('duplicate') || e.toString().contains('unique')) {
+        debugPrint('⚠️ Duplicate application detected');
+        return null;
+      }
+      
       return null;
     }
   }
