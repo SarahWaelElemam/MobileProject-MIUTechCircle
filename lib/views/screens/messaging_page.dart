@@ -460,95 +460,110 @@ for (var setting in (mySettings as List)) {
 }
 
 void updateLastMessage(int userId, String message, {int? unreadCount}) {
-  state = [
-    for (final chat in state)
-      if (chat.userId == userId)
-        Chat(
-          id: chat.id,
-          name: chat.name,
-          userId: chat.userId,
-          avatarUrl: chat.avatarUrl,
-          lastMessage: message,
-          conversationId: chat.conversationId,
-          settings: chat.settings,
-          unreadCount: unreadCount ?? chat.unreadCount,
-          lastMessageTime: DateTime.now(),
-          requestStatus: chat.requestStatus, // ✅ NEW
-        )
-      else
-        chat
-  ];
+  final newState = <Chat>[];
+  
+  for (final chat in state) {
+    if (chat.userId == userId) {
+      newState.add(Chat(
+        id: chat.id,
+        name: chat.name,
+        userId: chat.userId,
+        avatarUrl: chat.avatarUrl,
+        lastMessage: message,
+        conversationId: chat.conversationId,
+        settings: chat.settings,
+        unreadCount: unreadCount ?? chat.unreadCount,
+        lastMessageTime: DateTime.now(),
+        requestStatus: chat.requestStatus,
+      ));
+    } else {
+      newState.add(chat);
+    }
+  }
+  
+  state = newState;
 }
 
 // ✅ NEW: Method to mark messages as read
 void markAsRead(int userId) {
-  state = [
-    for (final chat in state)
-      if (chat.userId == userId)
-        Chat(
-          id: chat.id,
-          name: chat.name,
-          userId: chat.userId,
-          avatarUrl: chat.avatarUrl,
-          lastMessage: chat.lastMessage,
-          conversationId: chat.conversationId,
-          settings: chat.settings,
-          unreadCount: 0,
-          lastMessageTime: chat.lastMessageTime,
-          requestStatus: chat.requestStatus, // ✅ NEW
-        )
-      else
-        chat
-  ];
+  final newState = <Chat>[];
+  
+  for (final chat in state) {
+    if (chat.userId == userId) {
+      newState.add(Chat(
+        id: chat.id,
+        name: chat.name,
+        userId: chat.userId,
+        avatarUrl: chat.avatarUrl,
+        lastMessage: chat.lastMessage,
+        conversationId: chat.conversationId,
+        settings: chat.settings,
+        unreadCount: 0,
+        lastMessageTime: chat.lastMessageTime,
+        requestStatus: chat.requestStatus,
+      ));
+    } else {
+      newState.add(chat);
+    }
+  }
+  
+  state = newState;
 }
 
 // ✅ NEW: Method to update request status
 void updateRequestStatus(int userId, String status) {
-  state = [
-    for (final chat in state)
-      if (chat.userId == userId)
-        Chat(
-          id: chat.id,
-          name: chat.name,
-          userId: chat.userId,
-          avatarUrl: chat.avatarUrl,
-          lastMessage: chat.lastMessage,
-          conversationId: chat.conversationId,
-          settings: chat.settings,
-          unreadCount: chat.unreadCount,
-          lastMessageTime: chat.lastMessageTime,
-          requestStatus: status, // ✅ Update this
-        )
-      else
-        chat
-  ];
+  final newState = <Chat>[];
+  
+  for (final chat in state) {
+    if (chat.userId == userId) {
+      newState.add(Chat(
+        id: chat.id,
+        name: chat.name,
+        userId: chat.userId,
+        avatarUrl: chat.avatarUrl,
+        lastMessage: chat.lastMessage,
+        conversationId: chat.conversationId,
+        settings: chat.settings,
+        unreadCount: chat.unreadCount,
+        lastMessageTime: chat.lastMessageTime,
+        requestStatus: status,
+      ));
+    } else {
+      newState.add(chat);
+    }
+  }
+  
+  state = newState;
 }
-
 // ✅ NEW: Method to update blocking status
 void updateBlockStatus(int userId, bool isBlocked, bool isBlockedByOther) {
-  state = [
-    for (final chat in state)
-      if (chat.userId == userId)
-        Chat(
-          id: chat.id,
-          name: chat.name,
-          userId: chat.userId,
-          avatarUrl: chat.avatarUrl,
-          lastMessage: chat.lastMessage,
-          conversationId: chat.conversationId,
-          settings: ChatSettings(
-            isMuted: chat.settings.isMuted,
-            isBlocked: isBlocked,
-            isBlockedByOther: isBlockedByOther,
-            isFriend: chat.settings.isFriend,
-          ),
-          unreadCount: chat.unreadCount,
-          lastMessageTime: chat.lastMessageTime,
-          requestStatus: chat.requestStatus,
-        )
-      else
-        chat
-  ];
+  final newState = <Chat>[];
+  
+  for (final chat in state) {
+    if (chat.userId == userId) {
+      newState.add(Chat(
+        id: chat.id,
+        name: chat.name,
+        userId: chat.userId,
+        avatarUrl: chat.avatarUrl,
+        lastMessage: chat.lastMessage,
+        conversationId: chat.conversationId,
+        settings: ChatSettings(
+          isMuted: chat.settings.isMuted,
+          isBlocked: isBlocked,
+          isBlockedByOther: isBlockedByOther,
+          isFriend: chat.settings.isFriend,
+        ),
+        unreadCount: chat.unreadCount,
+        lastMessageTime: chat.lastMessageTime,
+        requestStatus: chat.requestStatus,
+      ));
+    } else {
+      newState.add(chat);
+    }
+  }
+  
+  state = newState;
 }
 
 }
@@ -1531,23 +1546,18 @@ Future<void> _checkIfBlockedByOther() async {
         .eq('user_id', widget.chat.userId)
         .maybeSingle();
 
-    if (otherUserSettings != null && mounted) {
-      final isBlockedByOther = otherUserSettings['is_blocked'] ?? false;
-      
-      // Update local state
-      setState(() {
-        widget.chat.settings.isBlockedByOther = isBlockedByOther;
-      });
-      
-      // ✅ UPDATE THE PROVIDER
-      ref
-          .read(chatsProvider(currentUserId).notifier)
-          .updateBlockStatus(
-            widget.chat.userId,
-            widget.chat.settings.isBlocked,
-            isBlockedByOther,
-          );
-    }
+ if (otherUserSettings != null && mounted) {
+  final isBlockedByOther = otherUserSettings['is_blocked'] ?? false;
+  
+  // ✅ ONLY UPDATE THE PROVIDER (no setState needed)
+  ref
+      .read(chatsProvider(currentUserId).notifier)
+      .updateBlockStatus(
+        widget.chat.userId,
+        widget.chat.settings.isBlocked,
+        isBlockedByOther,
+      );
+}
   } catch (e) {
     print('Error checking if blocked by other: $e');
   }
