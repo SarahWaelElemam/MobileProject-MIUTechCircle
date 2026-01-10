@@ -9,6 +9,7 @@ import 'manage_opportunities_page.dart';
 import 'manage_freelancing_page.dart';
 import 'admin_reports_page.dart';
 import 'manage_applications_page.dart';
+import 'manage_feedback_page.dart'; // ← Add this new page
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({Key? key}) : super(key: key);
@@ -22,6 +23,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
   int _totalPosts = 0;
   int _totalProjects = 0;
   int _totalFreelanceProjects = 0;
+  int _pendingFeedback = 0;
+  int _pendingReports = 0;
+  int _unreadNotifications = 0;
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -38,11 +42,12 @@ class _AdminHomePageState extends State<AdminHomePage> {
     });
     
     try {
+      // Existing counts
       int usersCount = 0;
       try {
         final usersData = await Supabase.instance.client
             .from('users')
-            .select('user_id'); // Changed from 'id' to 'user_id'
+            .select('user_id');
         usersCount = (usersData as List).length;
         debugPrint('✅ Users count: $usersCount');
       } catch (e) {
@@ -82,11 +87,53 @@ class _AdminHomePageState extends State<AdminHomePage> {
         debugPrint('❌ Error counting freelance projects: $e');
       }
 
+      // NEW: Count pending feedback
+      int feedbackCount = 0;
+      try {
+        final feedbackData = await Supabase.instance.client
+            .from('feedback')
+            .select('feedback_id')
+            .eq('status', 'pending');
+        feedbackCount = (feedbackData as List).length;
+        debugPrint('✅ Pending feedback count: $feedbackCount');
+      } catch (e) {
+        debugPrint('❌ Error counting feedback: $e');
+      }
+
+      // NEW: Count pending reports
+      int reportsCount = 0;
+      try {
+        final reportsData = await Supabase.instance.client
+            .from('problem_reports')
+            .select('report_id')
+            .eq('status', 'pending');
+        reportsCount = (reportsData as List).length;
+        debugPrint('✅ Pending reports count: $reportsCount');
+      } catch (e) {
+        debugPrint('❌ Error counting reports: $e');
+      }
+
+      // NEW: Count unread notifications
+      int notificationsCount = 0;
+      try {
+        final notificationsData = await Supabase.instance.client
+            .from('admin_notifications')
+            .select('notification_id')
+            .eq('is_read', false);
+        notificationsCount = (notificationsData as List).length;
+        debugPrint('✅ Unread notifications count: $notificationsCount');
+      } catch (e) {
+        debugPrint('❌ Error counting notifications: $e');
+      }
+
       setState(() {
         _totalUsers = usersCount;
         _totalPosts = postsCount;
         _totalProjects = projectsCount;
         _totalFreelanceProjects = freelanceCount;
+        _pendingFeedback = feedbackCount;
+        _pendingReports = reportsCount;
+        _unreadNotifications = notificationsCount;
         _isLoading = false;
       });
     } catch (e) {
@@ -108,6 +155,50 @@ class _AdminHomePageState extends State<AdminHomePage> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          // NEW: Notifications badge
+          if (_unreadNotifications > 0)
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications_outlined),
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ManageFeedbackPage(),
+                      ),
+                    );
+                    _loadStats();
+                  },
+                ),
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.orange,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      _unreadNotifications > 99 
+                          ? '99+' 
+                          : _unreadNotifications.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadStats,
@@ -147,6 +238,83 @@ class _AdminHomePageState extends State<AdminHomePage> {
                           ],
                         ),
                       ),
+
+                    // NEW: Alerts Section (if there are pending items)
+                    if (_pendingFeedback > 0 || _pendingReports > 0) ...[
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.orange[400]!, Colors.orange[600]!],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.orange.withOpacity(0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.white,
+                                size: 32,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Pending Review',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '$_pendingFeedback feedback • $_pendingReports reports',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ManageFeedbackPage(),
+                                  ),
+                                );
+                                _loadStats();
+                              },
+                              icon: const Icon(
+                                Icons.arrow_forward,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+
                     const Text(
                       'Overview',
                       style: TextStyle(
@@ -210,6 +378,25 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       ),
                     ),
                     const SizedBox(height: 16),
+
+                    // NEW: Feedback & Reports Management (placed first for priority)
+                    _buildManagementOption(
+                      'Feedback & Reports',
+                      '$_pendingFeedback pending feedback • $_pendingReports pending reports',
+                      Icons.feedback_outlined,
+                      Colors.amber,
+                      () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ManageFeedbackPage(),
+                          ),
+                        );
+                        _loadStats();
+                      },
+                      badge: _pendingFeedback + _pendingReports,
+                    ),
+                    const SizedBox(height: 12),
 
                     _buildManagementOption(
                       'Manage Users',
@@ -391,8 +578,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
     String subtitle,
     IconData icon,
     Color color,
-    Future<void> Function() onTap,
-  ) {
+    Future<void> Function() onTap, {
+    int? badge,
+  }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -401,17 +589,52 @@ class _AdminHomePageState extends State<AdminHomePage> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[200]!),
+          border: Border.all(
+            color: badge != null && badge > 0 
+                ? Colors.orange[300]! 
+                : Colors.grey[200]!,
+            width: badge != null && badge > 0 ? 2 : 1,
+          ),
         ),
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: color, size: 28),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: color, size: 28),
+                ),
+                if (badge != null && badge > 0)
+                  Positioned(
+                    right: -6,
+                    top: -6,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: Colors.orange,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 22,
+                        minHeight: 22,
+                      ),
+                      child: Text(
+                        badge > 99 ? '99+' : badge.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 16),
             Expanded(

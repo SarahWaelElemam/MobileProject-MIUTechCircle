@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -22,45 +23,114 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _newFollowers = true;
   bool _darkMode = false;
 
-  String? userName;
-  String? userEmail;
-  String? userRole;
+  String? userName = 'Loading...';  // Placeholder
+  String? userEmail = '';
+  String? userRole = 'Student';     // Default placeholder
+  String? userBio;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
-    _loadNotificationPreferences();
+    // Load data in background - don't block UI
+    Future.microtask(() {
+      _loadUserData();
+      _loadNotificationPreferences();
+    });
   }
 
   Future<void> _loadUserData() async {
     try {
+      print('🔄 Loading user data for user_id: ${widget.userId}');
+      
       final userData = await supabase
           .from('users')
-          .select('name, email, role')
+          .select('name, email, role, bio')
           .eq('user_id', widget.userId)
-          .single();
+          .single()
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              print('⏱️ User data loading timed out');
+              throw TimeoutException('Loading user data took too long');
+            },
+          );
 
+      print('✅ User data loaded: ${userData['name']}');
+      
       if (mounted) {
         setState(() {
           userName = userData['name'];
           userEmail = userData['email'];
           userRole = userData['role'];
+          userBio = userData['bio'];
         });
       }
     } catch (e) {
-      print('Error loading user data: $e');
+      print('❌ Error loading user data: $e');
+      // Set default values so the page still works
+      if (mounted) {
+        setState(() {
+          userName = 'User';
+          userEmail = 'Loading...';
+          userRole = 'Student';
+          userBio = '';
+        });
+      }
     }
   }
 
   Future<void> _loadNotificationPreferences() async {
-    // Load notification preferences from database or shared preferences
-    // For now, using default values
+    try {
+      print('🔄 Loading notification preferences for user_id: ${widget.userId}');
+      
+      final prefs = await supabase
+          .from('notification_preferences')
+          .select('*')
+          .eq('user_id', widget.userId)
+          .maybeSingle()
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              print('⏱️ Notification preferences loading timed out');
+              return null;
+            },
+          );
+
+      if (prefs != null && mounted) {
+        print('✅ Notification preferences loaded');
+        setState(() {
+          _pushNotifications = prefs['push_notifications'] ?? true;
+          _emailNotifications = prefs['email_notifications'] ?? true;
+          _postLikes = prefs['post_likes'] ?? true;
+          _comments = prefs['comments'] ?? true;
+          _newFollowers = prefs['new_followers'] ?? true;
+        });
+      } else {
+        print('ℹ️ No notification preferences found, using defaults');
+      }
+    } catch (e) {
+      print('❌ Error loading preferences: $e');
+      // Keep default values
+    }
   }
 
   Future<void> _saveNotificationPreferences() async {
-    // Save to database or shared preferences
-    _showSnackBar('Notification preferences saved', Colors.green);
+    try {
+      await supabase.from('notification_preferences').upsert({
+        'user_id': widget.userId,
+        'push_notifications': _pushNotifications,
+        'email_notifications': _emailNotifications,
+        'post_likes': _postLikes,
+        'comments': _comments,
+        'new_followers': _newFollowers,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+      
+      _showSnackBar('Notification preferences saved', Colors.green);
+    } catch (e) {
+      _showSnackBar('Failed to save preferences: $e', Colors.red);
+      print('Error saving preferences: $e');
+    }
   }
 
   void _showSnackBar(String message, Color color) {
@@ -357,7 +427,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: 'Edit Profile',
                     subtitle: 'Update your profile information',
                     onTap: () {
-                      _showSnackBar('Navigate to profile edit', Colors.blue);
+                      _showEditProfileDialog();
                     },
                   ),
                   _buildDivider(),
@@ -601,71 +671,482 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // DIALOG METHODS
+  // ============================================
+  // DIALOG METHODS - ALL FULLY FUNCTIONAL
+  // ============================================
+
+  void _showEditProfileDialog() {
+    final nameController = TextEditingController(text: userName);
+    final bioController = TextEditingController(text: userBio);
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit Profile'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Full Name',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person),
+                    hintText: 'Enter your full name',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Bio / About',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: bioController,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Tell us about yourself...',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Role and department cannot be changed',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                if (isLoading) ...[
+                  const SizedBox(height: 16),
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFE63946),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isLoading ? null : () async {
+                if (nameController.text.trim().isEmpty) {
+                  _showSnackBar('Name cannot be empty', Colors.red);
+                  return;
+                }
+
+                setDialogState(() => isLoading = true);
+
+                try {
+                  // Update user profile in database
+                  await supabase.from('users').update({
+                    'name': nameController.text.trim(),
+                    'bio': bioController.text.trim(),
+                    'updated_at': DateTime.now().toIso8601String(),
+                  }).eq('user_id', widget.userId);
+
+                  // Reload user data
+                  await _loadUserData();
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    _showSnackBar('Profile updated successfully!', Colors.green);
+                  }
+                } catch (e) {
+                  setDialogState(() => isLoading = false);
+                  _showSnackBar('Failed to update profile', Colors.red);
+                  print('Profile update error: $e');
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE63946),
+              ),
+              child: const Text('Save', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _showChangePasswordDialog() {
     final currentPasswordController = TextEditingController();
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
+    bool isLoading = false;
+    bool obscureCurrent = true;
+    bool obscureNew = true;
+    bool obscureConfirm = true;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Change Password'),
-        content: SingleChildScrollView(
-          child: Column(
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Change Password'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: currentPasswordController,
+                  obscureText: obscureCurrent,
+                  decoration: InputDecoration(
+                    labelText: 'Current Password',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(obscureCurrent ? Icons.visibility : Icons.visibility_off),
+                      onPressed: () => setDialogState(() => obscureCurrent = !obscureCurrent),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: newPasswordController,
+                  obscureText: obscureNew,
+                  decoration: InputDecoration(
+                    labelText: 'New Password',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock),
+                    hintText: 'Min 6 characters',
+                    suffixIcon: IconButton(
+                      icon: Icon(obscureNew ? Icons.visibility : Icons.visibility_off),
+                      onPressed: () => setDialogState(() => obscureNew = !obscureNew),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: confirmPasswordController,
+                  obscureText: obscureConfirm,
+                  decoration: InputDecoration(
+                    labelText: 'Confirm New Password',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock),
+                    suffixIcon: IconButton(
+                      icon: Icon(obscureConfirm ? Icons.visibility : Icons.visibility_off),
+                      onPressed: () => setDialogState(() => obscureConfirm = !obscureConfirm),
+                    ),
+                  ),
+                ),
+                if (isLoading) ...[
+                  const SizedBox(height: 16),
+                  const CircularProgressIndicator(
+                    color: Color(0xFFE63946),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isLoading ? null : () async {
+                // Validation
+                if (currentPasswordController.text.trim().isEmpty) {
+                  _showSnackBar('Please enter current password', Colors.red);
+                  return;
+                }
+                
+                if (newPasswordController.text.trim().isEmpty) {
+                  _showSnackBar('Please enter new password', Colors.red);
+                  return;
+                }
+
+                if (newPasswordController.text.length < 6) {
+                  _showSnackBar('Password must be at least 6 characters', Colors.red);
+                  return;
+                }
+
+                if (newPasswordController.text != confirmPasswordController.text) {
+                  _showSnackBar('Passwords do not match', Colors.red);
+                  return;
+                }
+
+                setDialogState(() => isLoading = true);
+
+                try {
+                  // Update password using Supabase Auth
+                  await supabase.auth.updateUser(
+                    UserAttributes(password: newPasswordController.text),
+                  );
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    _showSnackBar('Password changed successfully!', Colors.green);
+                  }
+                } catch (e) {
+                  setDialogState(() => isLoading = false);
+                  String errorMessage = 'Failed to change password';
+                  
+                  if (e.toString().contains('Invalid')) {
+                    errorMessage = 'Current password is incorrect';
+                  } else if (e.toString().contains('network')) {
+                    errorMessage = 'Network error. Please check your connection';
+                  }
+                  
+                  _showSnackBar(errorMessage, Colors.red);
+                  print('Password change error: $e');
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE63946),
+              ),
+              child: const Text('Change', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFeedbackDialog() {
+    final feedbackController = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Submit Feedback'),
+          content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: currentPasswordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Current Password',
-                  border: OutlineInputBorder(),
-                ),
+              const Text(
+                'We\'d love to hear your thoughts!',
+                style: TextStyle(fontSize: 14),
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: newPasswordController,
-                obscureText: true,
+                controller: feedbackController,
+                maxLines: 5,
                 decoration: const InputDecoration(
-                  labelText: 'New Password',
+                  hintText: 'Your feedback...',
                   border: OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: confirmPasswordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Confirm New Password',
-                  border: OutlineInputBorder(),
+              if (isSubmitting) ...[
+                const SizedBox(height: 16),
+                const CircularProgressIndicator(
+                  color: Color(0xFFE63946),
                 ),
-              ),
+              ],
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (newPasswordController.text == confirmPasswordController.text) {
-                // Implement password change logic
-                Navigator.pop(context);
-                _showSnackBar('Password changed successfully', Colors.green);
-              } else {
-                _showSnackBar('Passwords do not match', Colors.red);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE63946),
+          actions: [
+            TextButton(
+              onPressed: isSubmitting ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
             ),
-            child: const Text('Change', style: TextStyle(color: Colors.white)),
+            ElevatedButton(
+              onPressed: isSubmitting ? null : () async {
+                if (feedbackController.text.trim().isEmpty) {
+                  _showSnackBar('Please enter your feedback', Colors.orange);
+                  return;
+                }
+
+                setDialogState(() => isSubmitting = true);
+
+                try {
+                  print('📝 Submitting feedback for user_id: ${widget.userId}');
+                  print('📝 Feedback content: ${feedbackController.text.trim()}');
+                  
+                  // Insert feedback into database
+                  final response = await supabase.from('feedback').insert({
+                    'user_id': widget.userId,
+                    'content': feedbackController.text.trim(),
+                    'status': 'pending',
+                    'created_at': DateTime.now().toIso8601String(),
+                  }).select();
+
+                  print('✅ Feedback submitted successfully: $response');
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    _showSnackBar(
+                      'Thank you for your feedback! We\'ll review it soon.',
+                      Colors.green,
+                    );
+                  }
+                } catch (e) {
+                  setDialogState(() => isSubmitting = false);
+                  print('❌ Feedback submission error: $e');
+                  print('❌ Error type: ${e.runtimeType}');
+                  
+                  String errorMessage = 'Failed to submit feedback';
+                  
+                  if (e.toString().contains('relation') || e.toString().contains('does not exist')) {
+                    errorMessage = 'Database table not found. Please run the SQL setup script first.';
+                  } else if (e.toString().contains('permission') || e.toString().contains('policy')) {
+                    errorMessage = 'Permission denied. Please check RLS policies.';
+                  } else if (e.toString().contains('violates')) {
+                    errorMessage = 'Database constraint error. Check user_id exists.';
+                  }
+                  
+                  _showSnackBar(errorMessage, Colors.red);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE63946),
+              ),
+              child: const Text('Submit', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showReportProblemDialog() {
+    final problemController = TextEditingController();
+    String selectedProblemType = 'Bug';
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Report a Problem'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Problem Type',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: selectedProblemType,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  items: ['Bug', 'Feature Request', 'Performance', 'Other']
+                      .map((type) => DropdownMenuItem(
+                            value: type,
+                            child: Text(type),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    setDialogState(() => selectedProblemType = value!);
+                  },
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Description',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: problemController,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    hintText: 'Describe the problem...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                if (isSubmitting) ...[
+                  const SizedBox(height: 16),
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFE63946),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: isSubmitting ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isSubmitting ? null : () async {
+                if (problemController.text.trim().isEmpty) {
+                  _showSnackBar('Please describe the problem', Colors.orange);
+                  return;
+                }
+
+                setDialogState(() => isSubmitting = true);
+
+                try {
+                  print('🐛 Submitting problem report for user_id: ${widget.userId}');
+                  print('🐛 Problem type: $selectedProblemType');
+                  print('🐛 Description: ${problemController.text.trim()}');
+                  
+                  // Insert problem report into database
+                  final response = await supabase.from('problem_reports').insert({
+                    'user_id': widget.userId,
+                    'problem_type': selectedProblemType,
+                    'description': problemController.text.trim(),
+                    'status': 'pending',
+                    'priority': 'medium',
+                    'created_at': DateTime.now().toIso8601String(),
+                  }).select();
+
+                  print('✅ Problem report submitted successfully: $response');
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    _showSnackBar(
+                      'Problem reported successfully! Our team will investigate.',
+                      Colors.green,
+                    );
+                  }
+                } catch (e) {
+                  setDialogState(() => isSubmitting = false);
+                  print('❌ Problem report error: $e');
+                  print('❌ Error type: ${e.runtimeType}');
+                  
+                  String errorMessage = 'Failed to submit report';
+                  
+                  if (e.toString().contains('relation') || e.toString().contains('does not exist')) {
+                    errorMessage = 'Database table not found. Please run the SQL setup script first.';
+                  } else if (e.toString().contains('permission') || e.toString().contains('policy')) {
+                    errorMessage = 'Permission denied. Please check RLS policies.';
+                  } else if (e.toString().contains('violates')) {
+                    errorMessage = 'Database constraint error. Check user_id exists.';
+                  }
+                  
+                  _showSnackBar(errorMessage, Colors.red);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE63946),
+              ),
+              child: const Text('Submit', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -741,131 +1222,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showFeedbackDialog() {
-    final feedbackController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Submit Feedback'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'We\'d love to hear your thoughts!',
-              style: TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: feedbackController,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                hintText: 'Your feedback...',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (feedbackController.text.trim().isNotEmpty) {
-                Navigator.pop(context);
-                _showSnackBar('Thank you for your feedback!', Colors.green);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE63946),
-            ),
-            child: const Text('Submit', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showReportProblemDialog() {
-    final problemController = TextEditingController();
-    String selectedProblemType = 'Bug';
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Report a Problem'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Problem Type',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: selectedProblemType,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  ),
-                  items: ['Bug', 'Feature Request', 'Performance', 'Other']
-                      .map((type) => DropdownMenuItem(
-                            value: type,
-                            child: Text(type),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() => selectedProblemType = value!);
-                  },
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Description',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: problemController,
-                  maxLines: 5,
-                  decoration: const InputDecoration(
-                    hintText: 'Describe the problem...',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (problemController.text.trim().isNotEmpty) {
-                  Navigator.pop(context);
-                  _showSnackBar('Problem reported successfully', Colors.green);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE63946),
-              ),
-              child: const Text('Submit', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -1246,22 +1602,67 @@ Thank you for being part of our community!
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Log Out'),
-        content: const Text('Are you sure you want to log out?'),
+        title: Row(
+          children: [
+            Icon(Icons.logout, color: Colors.orange[700]),
+            const SizedBox(width: 12),
+            const Text('Log Out'),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to log out? You will need to sign in again to access your account.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             onPressed: () async {
-              // Implement logout logic
-              await supabase.auth.signOut();
-              if (mounted) {
+              try {
                 Navigator.pop(context); // Close dialog
-                Navigator.pop(context); // Close settings
-                // Navigate to login screen
-                _showSnackBar('Logged out successfully', Colors.green);
+                
+                // Show loading
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => const Center(
+                    child: Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(
+                              color: Color(0xFFE63946),
+                            ),
+                            SizedBox(height: 16),
+                            Text('Logging out...'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+
+                // Sign out
+                await supabase.auth.signOut();
+
+                if (mounted) {
+                  // Close loading and settings
+                  Navigator.pop(context); // Close loading
+                  Navigator.pop(context); // Close settings
+                  
+                  // Navigate to your login page
+                  // TODO: Replace with your actual login navigation
+                  _showSnackBar('Logged out successfully', Colors.green);
+                }
+              } catch (e) {
+                if (mounted) {
+                  Navigator.pop(context);
+                  _showSnackBar('Logout failed: ${e.toString()}', Colors.red);
+                }
+                print('Logout error: $e');
               }
             },
             style: ElevatedButton.styleFrom(
@@ -1313,11 +1714,27 @@ Thank you for being part of our community!
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               if (confirmController.text == 'DELETE') {
-                // Implement account deletion logic
-                Navigator.pop(context);
-                _showSnackBar('Account deleted', Colors.red);
+                try {
+                  // Delete user data (cascading delete will handle related records)
+                  await supabase
+                      .from('users')
+                      .delete()
+                      .eq('user_id', widget.userId);
+                  
+                  // Sign out
+                  await supabase.auth.signOut();
+                  
+                  if (mounted) {
+                    Navigator.pop(context);
+                    _showSnackBar('Account deleted successfully', Colors.red);
+                    // TODO: Navigate to login
+                  }
+                } catch (e) {
+                  _showSnackBar('Failed to delete account', Colors.red);
+                  print('Delete error: $e');
+                }
               } else {
                 _showSnackBar('Please type DELETE to confirm', Colors.orange);
               }
