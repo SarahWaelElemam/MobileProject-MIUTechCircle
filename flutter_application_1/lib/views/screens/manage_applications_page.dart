@@ -683,48 +683,24 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                       ),
                     ),
                     // Always show the score container, even if 0
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: aiScore >= 3.5
-                            ? Colors.green.withOpacity(0.1)
-                            : (aiScore >= 2.0
-                                  ? Colors.orange.withOpacity(0.1)
-                                  : (aiScore > 0
-                                        ? Colors.red.withOpacity(0.1)
-                                        : Colors.grey.withOpacity(0.1))),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: aiScore >= 3.5
-                              ? Colors.green
-                              : (aiScore >= 2.0
-                                    ? Colors.orange
-                                    : (aiScore > 0 ? Colors.red : Colors.grey)),
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.star,
-                            size: 14,
-                            color: aiScore >= 3.5
-                                ? Colors.green
-                                : (aiScore >= 2.0
-                                      ? Colors.orange
-                                      : (aiScore > 0
-                                            ? Colors.red
-                                            : Colors.grey)),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${aiScore.toStringAsFixed(1)} / 5.0',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
+                          decoration: BoxDecoration(
+                            color: aiScore >= 3.5
+                                ? Colors.green.withOpacity(0.1)
+                                : (aiScore >= 2.0
+                                      ? Colors.orange.withOpacity(0.1)
+                                      : (aiScore > 0
+                                            ? Colors.red.withOpacity(0.1)
+                                            : Colors.grey.withOpacity(0.1))),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
                               color: aiScore >= 3.5
                                   ? Colors.green
                                   : (aiScore >= 2.0
@@ -732,10 +708,50 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                                         : (aiScore > 0
                                               ? Colors.red
                                               : Colors.grey)),
+                              width: 1,
                             ),
                           ),
-                        ],
-                      ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.star,
+                                size: 14,
+                                color: aiScore >= 3.5
+                                    ? Colors.green
+                                    : (aiScore >= 2.0
+                                          ? Colors.orange
+                                          : (aiScore > 0
+                                                ? Colors.red
+                                                : Colors.grey)),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${aiScore.toStringAsFixed(1)} / 5.0',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: aiScore >= 3.5
+                                      ? Colors.green
+                                      : (aiScore >= 2.0
+                                            ? Colors.orange
+                                            : (aiScore > 0
+                                                  ? Colors.red
+                                                  : Colors.grey)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'AI Rating',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -816,7 +832,7 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                     label: Text(
                       (_recalculatingApps[applicationId] == true)
                           ? 'Analyzing...'
-                          : 'Recalculate Score',
+                          : 'Recalculate Ai Score',
                     ),
                   ),
                 ),

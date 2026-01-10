@@ -389,13 +389,24 @@ class FreelancingHubController {
         if (numericUserId != null) {
           final skillsData = await _supabase
               .from('skills')
-              .select('name')
+              .select('name, proficiency_level, endorsement_info')
               .eq('user_id', numericUserId);
 
           if (skillsData != null) {
-            userSkills = (skillsData as List)
-                .map((e) => e['name'].toString())
-                .toList();
+            userSkills = (skillsData as List).map((e) {
+              final name = e['name'].toString();
+              final level = e['proficiency_level']?.toString();
+              final endorsement = e['endorsement_info']?.toString();
+
+              String skillStr = name;
+              if (level != null && level.isNotEmpty) {
+                skillStr += ' ($level)';
+              }
+              if (endorsement != null && endorsement.isNotEmpty) {
+                skillStr += ' [Endorsed: $endorsement]';
+              }
+              return skillStr;
+            }).toList();
           }
         }
 
@@ -586,13 +597,24 @@ class FreelancingHubController {
       if (numericUserId != null) {
         final skillsData = await _supabase
             .from('skills')
-            .select('name')
+            .select('name, proficiency_level, endorsement_info')
             .eq('user_id', numericUserId);
 
         if (skillsData != null) {
-          userSkills = (skillsData as List)
-              .map((e) => e['name'].toString())
-              .toList();
+          userSkills = (skillsData as List).map((e) {
+            final name = e['name'].toString();
+            final level = e['proficiency_level']?.toString();
+            final endorsement = e['endorsement_info']?.toString();
+
+            String skillStr = name;
+            if (level != null && level.isNotEmpty) {
+              skillStr += ' ($level)';
+            }
+            if (endorsement != null && endorsement.isNotEmpty) {
+              skillStr += ' [Endorsed: $endorsement]';
+            }
+            return skillStr;
+          }).toList();
         }
       }
 

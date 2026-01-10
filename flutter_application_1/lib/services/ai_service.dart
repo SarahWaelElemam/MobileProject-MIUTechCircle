@@ -30,8 +30,12 @@ class AIService {
       Applicant Introduction: "$introduction"
       
       Task:
-      1. Compare the applicant's skills and introduction to the project requirements.
-      2. Provide a match score from 0.0 to 5.0 (float).
+      1. Compare the applicant's skills (names, proficiency, endorsements) and introduction to the project requirements.
+      2. Provide a match score from 0.0 to 5.0 using this rubric:
+         - 5.0 (Perfect): Has ALL required skills at High/Expert level + relevant experience/endorsements.
+         - 4.0-4.9 (Strong): Has all/most skills but lower proficiency, or missing only minor skills.
+         - 3.0-3.9 (Moderate): Missing one key skill or low proficiency in key areas.
+         - < 3.0 (Weak): Missing multiple key skills.
       3. Provide a concise 1-sentence reason for the score.
       
       Return ONLY a JSON object in this format:
