@@ -355,6 +355,10 @@ return Chat(
     if (a.lastMessageTime == null && b.lastMessageTime == null) return 0;
     if (a.lastMessageTime == null) return 1;
     if (b.lastMessageTime == null) return -1;
+    
+    // ✅ DEBUG: Print timestamps before comparing
+    print('🔍 Comparing: ${a.name} (${a.lastMessageTime}) vs ${b.name} (${b.lastMessageTime})');
+    
     return b.lastMessageTime!.compareTo(a.lastMessageTime!);
   });
     
