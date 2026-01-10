@@ -402,10 +402,12 @@ return Chat(
     if (a.lastMessageTime == null) return 1;
     if (b.lastMessageTime == null) return -1;
     
-    // ✅ DEBUG: Print timestamps before comparing
-    print('🔍 Comparing: ${a.name} (${a.lastMessageTime}) vs ${b.name} (${b.lastMessageTime})');
+    // ✅ FIXED: Proper comparison for descending order (most recent first)
+    final comparison = b.lastMessageTime!.compareTo(a.lastMessageTime!);
     
-    return b.lastMessageTime!.compareTo(a.lastMessageTime!);
+    print('🔍 Comparing: ${a.name} (${a.lastMessageTime}) vs ${b.name} (${b.lastMessageTime}) = $comparison');
+    
+    return comparison;
   });
     
     // ✅ ADD DEBUG CODE HERE:
