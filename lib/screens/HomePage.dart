@@ -86,23 +86,41 @@ class _HomePageState extends State<HomePage> {
 
   late ConfettiController _confettiController;
 
-  @override
-  void initState() {
-    super.initState();
-    _scrollController = ScrollController();
-    _feedFuture = _fetchFeed();
-    _confettiController = ConfettiController(
-      duration: const Duration(seconds: 2),
+@override
+void initState() {
+  super.initState();
+  _scrollController = ScrollController();
+  _feedFuture = _fetchFeed();
+  _confettiController = ConfettiController(
+    duration: const Duration(seconds: 2),
+  );
+  
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    context.read<StoryProvider>().loadStories(
+      currentUserId: widget.currentUserId,
+      forYou: _showForYou,
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<StoryProvider>().loadStories(
-        currentUserId: widget.currentUserId,
-        forYou: _showForYou,
-      );
 
-      context.read<SavedPostProvider>().loadSavedPosts(widget.currentUserId);
-    });
-  }
+    context.read<SavedPostProvider>().loadSavedPosts(widget.currentUserId);
+  });
+}
+
+// ADD THIS: New refresh method
+Future<void> _refreshFeed() async {
+  setState(() {
+    _feedFuture = _fetchFeed();
+    _commentCounts.clear(); // Clear comment cache
+  });
+  
+  // Reload stories
+  context.read<StoryProvider>().loadStories(
+    currentUserId: widget.currentUserId,
+    forYou: _showForYou,
+  );
+  
+  // Reload saved posts
+  context.read<SavedPostProvider>().loadSavedPosts(widget.currentUserId);
+}
 
   Future<List<AnnouncementModel>> _fetchAnnouncements() async {
     try {
@@ -359,12 +377,19 @@ Widget _buildStatCard(String number, String label) {
         child: TopNavbar(userId: widget.currentUserId),
       ),
 
-      body: Stack(
-        children: [
-          // ================= MAIN CONTENT =================
-          SingleChildScrollView(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(10),
+body: Stack(
+  children: [
+    // ================= MAIN CONTENT =================
+    RefreshIndicator(
+      onRefresh: _refreshFeed,
+      color: const Color(0xFFE63946),
+      displacement: 40,
+      strokeWidth: 3.0,
+      backgroundColor: Colors.white,
+      child: SingleChildScrollView(
+        controller: _scrollController,
+        padding: const EdgeInsets.all(10),
+        physics: const AlwaysScrollableScrollPhysics(), // ADD THIS LINE
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -737,6 +762,7 @@ if (_showFreelancingHub) ...[
 ],              ],
             ),
           ),
+      ),
           // ================= CONFETTI =================
           Align(
             alignment: Alignment.topCenter,

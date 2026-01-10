@@ -92,28 +92,35 @@ class _AddPostScreenState extends State<AddPostScreen> {
     }
   }
 
-  void _showCreatePostModal() {
-    if (_userId == null) return;
+ void _showCreatePostModal() {
+  if (_userId == null) return;
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      isDismissible: false,
-      builder: (context) => CreatePostModal(
-        userId: _userId!,
-        userRole: _userRole, // Pass the user role
-      ),
-    ).then((result) {
-      if (result == null) {
-        Navigator.pop(context);
-      } else {
-        // Post created successfully
-        Navigator.pop(context, result);
-      }
-    });
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    isDismissible: false,
+    builder: (context) => CreatePostModal(
+      userId: _userId!,
+      userRole: _userRole,
+    ),
+  ).then((result) {
+    if (result == null) {
+      Navigator.pop(context);
+} else {
+  // Post created successfully - pass result back with refresh flag
+  final Map<String, dynamic> returnData = {
+    'refresh': true,
+    'success': true,
+  };
+  if (result is Map) {
+    // Cast the result to the correct type
+    returnData.addAll(Map<String, dynamic>.from(result));
   }
-
+  Navigator.pop(context, returnData);
+}
+  });
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
