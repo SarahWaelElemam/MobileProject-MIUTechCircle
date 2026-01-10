@@ -158,7 +158,49 @@ class Message {
 // StateNotifier for managing chats list
 class ChatsNotifier extends StateNotifier<List<Chat>> {
   final int currentUserId;
-  ChatsNotifier(this.currentUserId) : super([]);
+  RealtimeChannel? _messagesChannel;
+  RealtimeChannel? _settingsChannel;
+  
+  ChatsNotifier(this.currentUserId) : super([]) {
+    _setupRealtimeSubscriptions();
+  }
+
+  void _setupRealtimeSubscriptions() {
+    _messagesChannel = supabase
+        .channel('chats_messages_$currentUserId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          callback: (payload) {
+            print('🔔 New message detected, refreshing chats...');
+            loadChats();
+          },
+        )
+        .subscribe();
+
+    _settingsChannel = supabase
+        .channel('chats_settings_$currentUserId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'conversation_settings',
+          callback: (payload) {
+            print('🔔 Settings changed, refreshing chats...');
+            loadChats();
+          },
+        )
+        .subscribe();
+        
+    print('✅ Real-time subscriptions active for user $currentUserId');
+  }
+
+  @override
+  void dispose() {
+    _messagesChannel?.unsubscribe();
+    _settingsChannel?.unsubscribe();
+    super.dispose();
+  }
 
 Future<void> loadChats() async {
   try {
@@ -608,7 +650,14 @@ class MessagesNotifier extends StateNotifier<List<Message>> {
 }
 // Provider for messages (parameterized by conversation ID)
 final messagesProvider = StateNotifierProvider.family<MessagesNotifier, List<Message>, String?>(
-  (ref, conversationId) => MessagesNotifier(),
+  (ref, conversationId) {
+    final notifier = MessagesNotifier();
+    // ✅ Auto-load messages when conversationId is provided
+    if (conversationId != null && conversationId.isNotEmpty) {
+      Future.microtask(() => notifier.loadMessages(conversationId));
+    }
+    return notifier;
+  },
 );
 
 // --------------------- Chats List ---------------------
@@ -676,7 +725,7 @@ void initState() {
     return buildAvatarHelper(name, avatarUrl, radius);
   }
 
- void startChatWithUser(int userId) {
+void startChatWithUser(int userId) {
   final chats = ref.read(chatsProvider(widget.currentUserId));
   final chat = chats.firstWhere((c) => c.userId == userId);
   
@@ -691,10 +740,8 @@ void initState() {
         currentUserId: widget.currentUserId,
       ),
     ),
-  ).then((_) {
-    // Reload chats when returning from chat room
-    ref.read(chatsProvider(widget.currentUserId).notifier).loadChats();
-  });
+  );
+  // ✅ REMOVED manual reload - real-time subscription handles it automatically
 }
 
   void openNewMessage() {
@@ -1937,8 +1984,6 @@ Future<void> _acceptRequest() async {
         .read(chatsProvider(currentUserId).notifier)
         .updateRequestStatus(widget.chat.userId, 'accepted');
     
-    // Reload chats to sync with database
-    await ref.read(chatsProvider(currentUserId).notifier).loadChats();
 
     if (mounted) {
       // Mark messages as read now that request is accepted
@@ -2030,7 +2075,7 @@ Future<void> _declineRequest() async {
       );
     }
 
-    await ref.read(chatsProvider(currentUserId).notifier).loadChats();
+
   } catch (e) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
