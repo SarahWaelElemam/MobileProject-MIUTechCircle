@@ -19,12 +19,14 @@ class FreelanceApplicationModel {
 
   factory FreelanceApplicationModel.fromMap(Map<String, dynamic> map) {
     return FreelanceApplicationModel(
-      applicationId: map['application_id'] as String,
-      projectId: map['project_id'] as String,
-      applicantId: map['applicant_id'] as String,
-      introduction: map['introduction'] as String,
-      status: map['status'] as String,
-      appliedAt: DateTime.parse(map['applied_at'] as String),
+      applicationId: map['application_id']?.toString() ?? '',
+      projectId: map['project_id']?.toString() ?? '',
+      applicantId: map['applicant_id']?.toString() ?? '', // Fixed: converts int to string
+      introduction: map['introduction']?.toString() ?? '',
+      status: map['status']?.toString() ?? 'pending',
+      appliedAt: map['applied_at'] != null 
+          ? DateTime.parse(map['applied_at'] as String)
+          : DateTime.now(),
       reviewedAt: map['reviewed_at'] != null 
           ? DateTime.parse(map['reviewed_at'] as String) 
           : null,

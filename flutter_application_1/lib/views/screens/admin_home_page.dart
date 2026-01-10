@@ -8,6 +8,7 @@ import 'manage_events_page.dart';
 import 'manage_opportunities_page.dart';
 import 'manage_freelancing_page.dart';
 import 'admin_reports_page.dart';
+import 'manage_applications_page.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({Key? key}) : super(key: key);
@@ -37,7 +38,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
     });
     
     try {
-      // Count users
       int usersCount = 0;
       try {
         final usersData = await Supabase.instance.client
@@ -48,7 +48,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
         debugPrint('Error counting users: $e');
       }
 
-      // Count posts
       int postsCount = 0;
       try {
         final postsData = await Supabase.instance.client
@@ -59,7 +58,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
         debugPrint('Error counting posts: $e');
       }
 
-      // Count projects
       int projectsCount = 0;
       try {
         final projectsData = await Supabase.instance.client
@@ -70,7 +68,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
         debugPrint('Error counting projects: $e');
       }
 
-      // Count freelance projects
       int freelanceCount = 0;
       try {
         final freelanceData = await Supabase.instance.client
@@ -155,7 +152,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Stats Cards
                     Row(
                       children: [
                         Expanded(
@@ -211,7 +207,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Management Options
                     _buildManagementOption(
                       'Manage Users',
                       'View and manage all registered users',
@@ -277,6 +272,21 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     ),
                     const SizedBox(height: 12),
                     _buildManagementOption(
+                      'View Applications',
+                      'View all freelance project applications',
+                      Icons.assignment_ind_outlined,
+                      Colors.deepPurple,
+                      () async {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ManageApplicationsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _buildManagementOption(
                       'Manage Events',
                       'Create and manage events',
                       Icons.event_outlined,
@@ -313,12 +323,14 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       'View analytics and reports',
                       Icons.assessment_outlined,
                       Colors.indigo,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AdminReportsPage(),
-                        ),
-                      ),
+                      () async {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const AdminReportsPage(),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
