@@ -563,36 +563,43 @@ class _ManageFeedbackPageState extends State<ManageFeedbackPage>
             ),
             const SizedBox(height: 12),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
                 const SizedBox(width: 4),
-                Text(
-                  _formatDate(feedback['created_at']),
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-                const Spacer(),
-                if (status == 'pending') ...[
-                  TextButton.icon(
-                    onPressed: () => _updateFeedbackStatus(
-                      feedback['feedback_id'],
-                      'reviewed',
-                    ),
-                    icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Mark Reviewed'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.blue,
-                    ),
+                Expanded(
+                  child: Text(
+                    _formatDate(feedback['created_at']),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
-                  TextButton.icon(
-                    onPressed: () => _updateFeedbackStatus(
-                      feedback['feedback_id'],
-                      'resolved',
-                    ),
-                    icon: const Icon(Icons.done_all, size: 16),
-                    label: const Text('Resolve'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.green,
-                    ),
+                ),
+                if (status == 'pending') ...[
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => _updateFeedbackStatus(
+                          feedback['feedback_id'],
+                          'reviewed',
+                        ),
+                        icon: const Icon(Icons.check, size: 16),
+                        label: const Text('Reviewed'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.blue,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => _updateFeedbackStatus(
+                          feedback['feedback_id'],
+                          'resolved',
+                        ),
+                        icon: const Icon(Icons.done_all, size: 16),
+                        label: const Text('Resolve'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.green,
+                        ),
+                      ),
+                    ],
                   ),
                 ] else if (status == 'reviewed') ...[
                   TextButton.icon(
