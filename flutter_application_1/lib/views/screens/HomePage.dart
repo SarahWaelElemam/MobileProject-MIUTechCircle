@@ -22,6 +22,9 @@ import '../../models/announcement_model.dart';
 import '../widgets/announcement_card.dart';
 import '../../controllers/announcement_controller.dart';
 import '../widgets/competition_request_card.dart';
+import '../../models/FreelanceProjectModel.dart';
+import '../widgets/freelance_project_card.dart';
+import '../../providers/FreelancingHubProvider.dart';
 
 final supabase = Supabase.instance.client;
 
@@ -33,22 +36,22 @@ class FeedItem {
   final FeedType type;
 
   FeedItem.fromPost(this.post)
-    : announcement = null,
-      request = null,
-      createdAt = post!.createdAt,
-      type = FeedType.post;
+      : announcement = null,
+        request = null,
+        createdAt = post!.createdAt,
+        type = FeedType.post;
 
   FeedItem.fromAnnouncement(this.announcement)
-    : post = null,
-      request = null,
-      createdAt = announcement!.createdAt,
-      type = FeedType.announcement;
+      : post = null,
+        request = null,
+        createdAt = announcement!.createdAt,
+        type = FeedType.announcement;
 
   FeedItem.fromRequest(this.request)
-    : post = null,
-      announcement = null,
-      createdAt = request!.createdAt,
-      type = FeedType.request;
+      : post = null,
+        announcement = null,
+        createdAt = request!.createdAt,
+        type = FeedType.request;
 }
 
 enum FeedType { post, announcement, request }
@@ -74,6 +77,9 @@ class _HomePageState extends State<HomePage> {
   // For You toggle (false = Discover, true = For You)
   bool _showForYou = false;
 
+  // Freelancing Hub toggle
+  bool _showFreelancingHub = false;
+
   // Cached posts future
   late Future<List<FeedItem>> _feedFuture;
 
@@ -90,6 +96,7 @@ class _HomePageState extends State<HomePage> {
     _confettiController = ConfettiController(
       duration: const Duration(seconds: 2),
     );
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<StoryProvider>().loadStories(
         currentUserId: widget.currentUserId,
@@ -97,7 +104,20 @@ class _HomePageState extends State<HomePage> {
       );
 
       context.read<SavedPostProvider>().loadSavedPosts(widget.currentUserId);
+
+      // 🆕 LOAD FREELANCING HUB DATA (UUID version - no userId parameters)
+      final freelancingProvider = context.read<FreelancingHubProvider>();
+      freelancingProvider.loadProjects();
+      freelancingProvider.loadSavedProjects();        // ✅ No userId parameter
+      freelancingProvider.loadUserApplications();     // ✅ No userId parameter
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _confettiController.dispose();
+    super.dispose();
   }
 
   Future<List<AnnouncementModel>> _fetchAnnouncements() async {
@@ -170,6 +190,17 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<bool> _isFollowing(int targetUserId) async {
+    final res = await supabase
+        .from('friendships')
+        .select()
+        .eq('user_id', widget.currentUserId)
+        .eq('friend_id', targetUserId)
+        .eq('status', 'accepted')
+        .maybeSingle();
+
+    return res != null;
+  }
 
   Future<void> _toggleFollow(int targetUserId, String userName) async {
     final existing = await supabase
@@ -209,9 +240,7 @@ class _HomePageState extends State<HomePage> {
     setState(() {});
   }
 
-  // Add this method to handle calendar event creation:
-  // CATEGORY MAPPING (updated per your DB)
-  // ================================================================
+  // CATEGORY MAPPING
   int _categoryNameToId(String name) {
     switch (name) {
       case "Internships":
@@ -233,9 +262,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ===========================================================
-  // FRIENDSHIP CHECK
-  // ===========================================================
   Future<bool> _areFriends(int user1, int user2) async {
     try {
       final result = await supabase
@@ -253,19 +279,41 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Widget _buildStatCard(String number, String label) {
+    return Column(
+      children: [
+        Text(
+          number,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.9),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+
   // ========================= BUILD =========================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xffF5F7FA),
-
+      backgroundColor: _showFreelancingHub
+          ? const Color(0xFFFFF5F5) // Very light red/pink tint
+          : const Color(0xffF5F7FA), // Original light grey
       endDrawer: UserDrawerContent(userId: widget.currentUserId),
-
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(60),
         child: TopNavbar(userId: widget.currentUserId),
       ),
-
       body: Stack(
         children: [
           // ================= MAIN CONTENT =================
@@ -284,6 +332,7 @@ class _HomePageState extends State<HomePage> {
                         onTap: () {
                           setState(() {
                             _showForYou = false;
+                            _showFreelancingHub = false;
                             _feedFuture = _fetchFeed();
                           });
                         },
@@ -292,7 +341,9 @@ class _HomePageState extends State<HomePage> {
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: _showForYou ? Colors.grey : Colors.black,
+                            color: (!_showForYou && !_showFreelancingHub)
+                                ? Colors.black
+                                : Colors.grey,
                           ),
                         ),
                       ),
@@ -301,6 +352,7 @@ class _HomePageState extends State<HomePage> {
                         onTap: () {
                           setState(() {
                             _showForYou = true;
+                            _showFreelancingHub = false;
                             _feedFuture = _fetchFeed();
                           });
                         },
@@ -310,6 +362,30 @@ class _HomePageState extends State<HomePage> {
                             fontSize: 20,
                             fontWeight: FontWeight.w400,
                             color: _showForYou ? Colors.black : Colors.grey,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _showFreelancingHub = true;
+                            _showForYou = false;
+                          });
+                        },
+                        child: ShaderMask(
+                          shaderCallback: (bounds) => LinearGradient(
+                            colors: _showFreelancingHub
+                                ? [Colors.red.shade700, Colors.red.shade400]
+                                : [Colors.red.shade200, Colors.red.shade100],
+                          ).createShader(bounds),
+                          child: const Text(
+                            "Freelancing Hub",
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
@@ -326,200 +402,392 @@ class _HomePageState extends State<HomePage> {
                     }
 
                     final data = snapshot.data;
-                    final name =
-                        (data != null &&
+                    final name = (data != null &&
                             (data['name'] ?? "").toString().trim().isNotEmpty)
                         ? data['name']
                         : "User";
-                    final imageUrl = data != null
-                        ? data['profile_image']
-                        : null;
+                    final imageUrl = data != null ? data['profile_image'] : null;
 
                     return _createPostBar(name, imageUrl);
                   },
                 ),
 
                 const SizedBox(height: 8),
-
-                // ================= CATEGORIES =================
-                SizedBox(
-                  height: 40,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    clipBehavior: Clip.none,
-                    children: [
-                      CategoryChip(
-                        text: "ALL",
-                        selectedCategory: _selectedCategory,
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = "ALL";
-                            _feedFuture = _fetchFeed();
-                          });
-                        },
-                      ),
-                      CategoryChip(
-                        text: "Internships",
-                        icon: Icons.school,
-                        selectedCategory: _selectedCategory,
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = "Internships";
-                            _feedFuture = _fetchFeed();
-                          });
-                        },
-                      ),
-                      CategoryChip(
-                        text: "Competitions",
-                        icon: Icons.emoji_events,
-                        selectedCategory: _selectedCategory,
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = "Competitions";
-                            _feedFuture = _fetchFeed();
-                          });
-                        },
-                      ),
-                      CategoryChip(
-                        text: "Courses",
-                        icon: Icons.menu_book,
-                        selectedCategory: _selectedCategory,
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = "Courses";
-                            _feedFuture = _fetchFeed();
-                          });
-                        },
-                      ),
-                      CategoryChip(
-                        text: "News",
-                        icon: Icons.article,
-                        selectedCategory: _selectedCategory,
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = "News";
-                            _feedFuture = _fetchFeed();
-                          });
-                        },
-                      ),
-                      CategoryChip(
-                        text: "Events",
-                        icon: Icons.event,
-                        selectedCategory: _selectedCategory,
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = "Events";
-                            _feedFuture = _fetchFeed();
-                          });
-                        },
-                      ),
-
-                      CategoryChip(
-                        text: "Jobs",
-                        icon: Icons.work,
-                        selectedCategory: _selectedCategory,
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = "Jobs";
-                            _feedFuture = _fetchFeed();
-                          });
-                        },
-                      ),
-                      CategoryChip(
-                        text: "Announcements",
-                        icon: Icons.campaign,
-                        selectedCategory: _selectedCategory,
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = "Announcements";
-                            _feedFuture = _fetchFeed();
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-
                 const SizedBox(height: 20),
 
-                // ================= STORIES =================
-                FutureBuilder<Map<String, dynamic>?>(
-                  future: UserController.fetchUserData(widget.currentUserId),
-                  builder: (context, userSnapshot) {
-                    if (!userSnapshot.hasData) {
-                      return const SizedBox(
-                        height: 120,
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
+                // ================= CONDITIONAL CONTENT =================
+                if (_showFreelancingHub) ...[
+                  // 🆕 GRADIENT BANNER FOR FREELANCING HUB
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 20, horizontal: 16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.red.shade400,
+                          Colors.red.shade600,
+                          Colors.red.shade800,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.red.withOpacity(0.3),
+                          blurRadius: 15,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.work_outline,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "Find Your Next Project",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    "Browse opportunities from top companies",
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
 
-                    final profileImage = userSnapshot.data?['profile_image'];
-                    return Consumer<StoryProvider>(
-                      builder: (context, storyProvider, _) {
-                        return StorySection(
-                          myAvatarUrl: profileImage,
-                          stories: storyProvider.stories,
-                          hasMyStory: storyProvider.stories.any(
-                            (s) => s['user_id'] == widget.currentUserId,
+                        // 🆕 DYNAMIC STATS FROM PROVIDER
+                        Consumer<FreelancingHubProvider>(
+                          builder: (context, provider, _) {
+                            final projectCount = provider.projects.length;
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                _buildStatCard("$projectCount", "Active Projects"),
+                                Container(
+                                  width: 1,
+                                  height: 30,
+                                  color: Colors.white.withOpacity(0.3),
+                                ),
+                                _buildStatCard("150+", "Companies"),
+                                Container(
+                                  width: 1,
+                                  height: 30,
+                                  color: Colors.white.withOpacity(0.3),
+                                ),
+                                _buildStatCard("500+", "Freelancers"),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // 🆕 REAL FREELANCING HUB PROJECTS FROM DATABASE (UUID VERSION)
+                  Consumer<FreelancingHubProvider>(
+                    builder: (context, provider, _) {
+                      if (provider.isLoadingProjects) {
+                        return const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(40),
+                            child: CircularProgressIndicator(),
                           ),
-                          currentUserId: widget.currentUserId,
                         );
-                      },
-                    );
-                  },
-                ),
+                      }
 
-                const SizedBox(height: 10),
-                Divider(color: Colors.grey.shade300),
+                      if (provider.projectsError != null) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              children: [
+                                const Icon(Icons.error_outline,
+                                    size: 48, color: Colors.red),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Error loading projects',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ElevatedButton.icon(
+                                  onPressed: () => provider.loadProjects(),
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text('Retry'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
 
-                // ================= POSTS =================
-                FutureBuilder<List<FeedItem>>(
-                  future: _feedFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 40),
-                        child: Center(child: CircularProgressIndicator()),
+                      if (provider.projects.isEmpty) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(40),
+                            child: Column(
+                              children: [
+                                Icon(Icons.work_off,
+                                    size: 64, color: Colors.grey[400]),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No projects available',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Check back later for new opportunities',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
+                      // ✅ Load application counts for all projects (UUID version)
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        final projectIds = provider.projects
+                            .map((p) => p.projectId)
+                            .toList();
+                        provider.loadApplicationCounts(projectIds);
+                      });
+
+                      return Column(
+                        children: provider.projects.map((project) {
+                          return FreelanceProjectCard(
+                            project: project,
+                            // ✅ No currentUserId parameter in UUID version
+                          );
+                        }).toList(),
                       );
-                    }
+                    },
+                  ),
+                ] else ...[
+                  // CATEGORIES (Only show in Discover/For You)
+                  SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      clipBehavior: Clip.none,
+                      children: [
+                        CategoryChip(
+                          text: "ALL",
+                          selectedCategory: _selectedCategory,
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = "ALL";
+                              _feedFuture = _fetchFeed();
+                            });
+                          },
+                        ),
+                        CategoryChip(
+                          text: "Internships",
+                          icon: Icons.school,
+                          selectedCategory: _selectedCategory,
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = "Internships";
+                              _feedFuture = _fetchFeed();
+                            });
+                          },
+                        ),
+                        CategoryChip(
+                          text: "Competitions",
+                          icon: Icons.emoji_events,
+                          selectedCategory: _selectedCategory,
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = "Competitions";
+                              _feedFuture = _fetchFeed();
+                            });
+                          },
+                        ),
+                        CategoryChip(
+                          text: "Courses",
+                          icon: Icons.menu_book,
+                          selectedCategory: _selectedCategory,
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = "Courses";
+                              _feedFuture = _fetchFeed();
+                            });
+                          },
+                        ),
+                        CategoryChip(
+                          text: "News",
+                          icon: Icons.article,
+                          selectedCategory: _selectedCategory,
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = "News";
+                              _feedFuture = _fetchFeed();
+                            });
+                          },
+                        ),
+                        CategoryChip(
+                          text: "Events",
+                          icon: Icons.event,
+                          selectedCategory: _selectedCategory,
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = "Events";
+                              _feedFuture = _fetchFeed();
+                            });
+                          },
+                        ),
+                        CategoryChip(
+                          text: "Jobs",
+                          icon: Icons.work,
+                          selectedCategory: _selectedCategory,
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = "Jobs";
+                              _feedFuture = _fetchFeed();
+                            });
+                          },
+                        ),
+                        CategoryChip(
+                          text: "Announcements",
+                          icon: Icons.campaign,
+                          selectedCategory: _selectedCategory,
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = "Announcements";
+                              _feedFuture = _fetchFeed();
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
 
-                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                      return const Padding(
-                        padding: EdgeInsets.only(top: 20),
-                        child: Center(child: Text("No content available")),
+                  const SizedBox(height: 20),
+
+                  // EXISTING FEED (Stories + Posts)
+                  FutureBuilder<Map<String, dynamic>?>(
+                    future: UserController.fetchUserData(widget.currentUserId),
+                    builder: (context, userSnapshot) {
+                      if (!userSnapshot.hasData) {
+                        return const SizedBox(
+                          height: 120,
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+
+                      final profileImage = userSnapshot.data?['profile_image'];
+                      return Consumer<StoryProvider>(
+                        builder: (context, storyProvider, _) {
+                          return StorySection(
+                            myAvatarUrl: profileImage,
+                            stories: storyProvider.stories,
+                            hasMyStory: storyProvider.stories.any(
+                              (s) => s['user_id'] == widget.currentUserId,
+                            ),
+                            currentUserId: widget.currentUserId,
+                          );
+                        },
                       );
-                    }
+                    },
+                  ),
 
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _loadLikesAndRepostsForPosts(snapshot.data!);
-                    });
+                  const SizedBox(height: 10),
+                  Divider(color: Colors.grey.shade300),
 
-                    return Column(
-                      children: snapshot.data!.map((item) {
-                        switch (item.type) {
-                          case FeedType.post:
-                            return _feedCard(item.post!);
+                  // POSTS
+                  FutureBuilder<List<FeedItem>>(
+                    future: _feedFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Padding(
+                          padding: EdgeInsets.only(top: 40),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
 
-                          case FeedType.announcement:
-                            return AnnouncementCard(
-                              announcement: item.announcement!,
-                              currentUserId: widget.currentUserId,
-                            );
+                      if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.only(top: 20),
+                          child: Center(child: Text("No content available")),
+                        );
+                      }
 
-                          case FeedType.request:
-                            return CompetitionRequestCard(
-                              request: item.request!,
-                              currentUserId: widget.currentUserId,
-                            );
-                        }
-                      }).toList(),
-                    );
-                  },
-                ),
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _loadLikesAndRepostsForPosts(snapshot.data!);
+                      });
+
+                      return Column(
+                        children: snapshot.data!.map((item) {
+                          switch (item.type) {
+                            case FeedType.post:
+                              return _feedCard(item.post!);
+
+                            case FeedType.announcement:
+                              return AnnouncementCard(
+                                announcement: item.announcement!,
+                                currentUserId: widget.currentUserId,
+                              );
+
+                            case FeedType.request:
+                              return CompetitionRequestCard(
+                                request: item.request!,
+                                currentUserId: widget.currentUserId,
+                              );
+                          }
+                        }).toList(),
+                      );
+                    },
+                  ),
+                ],
               ],
             ),
           ),
-
           // ================= CONFETTI =================
           Align(
             alignment: Alignment.topCenter,
@@ -537,7 +805,6 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-
       bottomNavigationBar: BottomNavbar(
         currentUserId: widget.currentUserId,
         currentIndex: 0, // Home page is index 0
@@ -545,9 +812,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // ===========================================================================
-  // FETCH TAGS FOR A POST
-  // ===========================================================================
   Future<List<TagModel>> _fetchTags(int postId) async {
     try {
       final data = await supabase
@@ -565,15 +829,10 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ===========================================================================
-  // FETCH POSTS (NEWEST FIRST) with category and For You filtering
-  // ===========================================================================
   Future<List<PostModel>> _fetchPosts() async {
     try {
-      // If For You: gather friend ids (exclude current user)
       List<int> friendIds = [];
       if (_showForYou) {
-        // 1️⃣ friends ids
         final friendsResult = await supabase
             .from('friendships')
             .select('user_id, friend_id, status')
@@ -588,22 +847,18 @@ class _HomePageState extends State<HomePage> {
             friendIds.add(f['friend_id']);
         }
 
-        // Cache the friend IDs for repost indicator
         _cachedFriendIds = friendIds;
 
         if (friendIds.isEmpty) return [];
 
-        // 2️⃣ reposted posts by friends
         final reposts = await supabase
             .from('reposts')
             .select('post_id, user_id')
             .filter('user_id', 'in', '(${friendIds.join(',')})');
 
-        final repostedPostIds = reposts
-            .map<int>((r) => r['post_id'] as int)
-            .toList();
+        final repostedPostIds =
+            reposts.map<int>((r) => r['post_id'] as int).toList();
 
-        // 3️⃣ fetch posts (friends posts OR reposted posts)
         if (_selectedCategory != "ALL") {
           final categoryId = _categoryNameToId(_selectedCategory);
 
@@ -634,7 +889,6 @@ class _HomePageState extends State<HomePage> {
                 .toList();
           }
         } else {
-          // ALL categories
           if (repostedPostIds.isEmpty) {
             final data = await supabase
                 .from('posts')
@@ -661,11 +915,9 @@ class _HomePageState extends State<HomePage> {
           }
         }
       } else {
-        // Discover mode
-        _cachedFriendIds = []; // Clear cached friend IDs
+        _cachedFriendIds = [];
 
         if (_selectedCategory != "ALL") {
-          // ✅ Return empty list if "Announcements" is selected (show only announcements, no posts)
           if (_selectedCategory == "Announcements") {
             return [];
           }
@@ -684,7 +936,6 @@ class _HomePageState extends State<HomePage> {
               )
               .toList();
         } else {
-          // Discover + ALL
           final data = await supabase
               .from('posts')
               .select('*')
@@ -708,10 +959,8 @@ class _HomePageState extends State<HomePage> {
     if (_commentCounts.containsKey(postId)) return;
 
     try {
-      final comments = await supabase
-          .from('comments')
-          .select()
-          .eq('post_id', postId);
+      final comments =
+          await supabase.from('comments').select().eq('post_id', postId);
       final count = (comments as List).length;
 
       setStateIfMounted(() {
@@ -756,7 +1005,6 @@ class _HomePageState extends State<HomePage> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ✅ REPOST INDICATOR (only in For You mode)
                 if (_showForYou && _cachedFriendIds.isNotEmpty)
                   Consumer<RepostProvider>(
                     builder: (context, repostProvider, _) {
@@ -779,9 +1027,8 @@ class _HomePageState extends State<HomePage> {
                               .where((n) => n != null)
                               .join(', ');
 
-                          final othersCount = friends.length > 3
-                              ? friends.length - 3
-                              : 0;
+                          final othersCount =
+                              friends.length > 3 ? friends.length - 3 : 0;
 
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 6, left: 4),
@@ -811,7 +1058,6 @@ class _HomePageState extends State<HomePage> {
                     },
                   ),
 
-                // POST CARD
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -824,12 +1070,10 @@ class _HomePageState extends State<HomePage> {
                       Row(
                         children: [
                           CircleAvatar(
-                            backgroundImage: avatar != null
-                                ? NetworkImage(avatar)
-                                : null,
-                            child: avatar == null
-                                ? const Icon(Icons.person)
-                                : null,
+                            backgroundImage:
+                                avatar != null ? NetworkImage(avatar) : null,
+                            child:
+                                avatar == null ? const Icon(Icons.person) : null,
                           ),
                           const SizedBox(width: 10),
 
@@ -855,9 +1099,7 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
 
-                          // ➕ FOLLOW BUTTON (لو مش Friend)
-                          if (!isFriend &&
-                              post.authorId != widget.currentUserId)
+                          if (!isFriend && post.authorId != widget.currentUserId)
                             TextButton.icon(
                               onPressed: () {
                                 _toggleFollow(post.authorId, userName);
@@ -872,7 +1114,6 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
 
-                          // 🔖 SAVE ICON
                           Consumer<SavedPostProvider>(
                             builder: (context, savedProvider, _) {
                               final isSaved = savedProvider.isSaved(
@@ -940,8 +1181,7 @@ class _HomePageState extends State<HomePage> {
                           );
                         },
                       ),
-                      if (post.mediaUrl != null &&
-                          post.mediaUrl!.isNotEmpty) ...[
+                      if (post.mediaUrl != null && post.mediaUrl!.isNotEmpty) ...[
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
                           child: Image.network(
@@ -956,7 +1196,6 @@ class _HomePageState extends State<HomePage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
-                          // LIKE (uses PostProvider)
                           Consumer<PostProvider>(
                             builder: (context, provider, _) {
                               final likeCount =
@@ -966,8 +1205,7 @@ class _HomePageState extends State<HomePage> {
                               );
 
                               return GestureDetector(
-                                onTap: () =>
-                                    provider.togglePostLike(post.postId),
+                                onTap: () => provider.togglePostLike(post.postId),
                                 child: Row(
                                   children: [
                                     Icon(
@@ -975,9 +1213,8 @@ class _HomePageState extends State<HomePage> {
                                           ? Icons.thumb_up_alt
                                           : Icons.thumb_up_alt_outlined,
                                       size: 20,
-                                      color: liked
-                                          ? Colors.red
-                                          : Colors.grey[700],
+                                      color:
+                                          liked ? Colors.red : Colors.grey[700],
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
@@ -1004,7 +1241,6 @@ class _HomePageState extends State<HomePage> {
                             },
                           ),
 
-                          // COMMENT
                           _postAction(
                             Icons.comment_outlined,
                             "Comment",
@@ -1027,11 +1263,10 @@ class _HomePageState extends State<HomePage> {
                                   context,
                                   listen: false,
                                 );
-                                final repostProvider =
-                                    Provider.of<RepostProvider>(
-                                      context,
-                                      listen: false,
-                                    );
+                                final repostProvider = Provider.of<RepostProvider>(
+                                  context,
+                                  listen: false,
+                                );
 
                                 postProvider.loadPostLikes(post.postId);
                                 repostProvider.loadRepostData(post.postId);
@@ -1040,7 +1275,6 @@ class _HomePageState extends State<HomePage> {
                             count: _commentCounts[post.postId] ?? 0,
                           ),
 
-                          // REPOST (uses RepostProvider)
                           Consumer<RepostProvider>(
                             builder: (context, repostProvider, _) {
                               final isReposted = repostProvider.isReposted(
@@ -1205,16 +1439,16 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-String timeAgo(DateTime date) {
-  final now = DateTime.now();
-  final localDate = date.toLocal(); // Add this line
-  final diff = now.difference(localDate); // Use localDate instead of date
+  String timeAgo(DateTime date) {
+    final now = DateTime.now();
+    final localDate = date.toLocal();
+    final diff = now.difference(localDate);
 
-  if (diff.inMinutes < 60) return "${diff.inMinutes} minutes ago";
-  if (diff.inHours < 24) return "${diff.inHours} hours ago";
-  if (diff.inDays < 7) return "${diff.inDays} days ago";
+    if (diff.inMinutes < 60) return "${diff.inMinutes} minutes ago";
+    if (diff.inHours < 24) return "${diff.inHours} hours ago";
+    if (diff.inDays < 7) return "${diff.inDays} days ago";
 
-  final weeks = (diff.inDays / 7).floor();
-  return "$weeks week${weeks > 1 ? 's' : ''} ago";
-}
+    final weeks = (diff.inDays / 7).floor();
+    return "$weeks week${weeks > 1 ? 's' : ''} ago";
+  }
 }

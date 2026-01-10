@@ -6,6 +6,7 @@ import 'manage_posts_page.dart';
 import 'manage_projects_page.dart';
 import 'manage_events_page.dart';
 import 'manage_opportunities_page.dart';
+import 'manage_freelancing_page.dart';
 import 'admin_reports_page.dart';
 
 class AdminHomePage extends StatefulWidget {
@@ -19,8 +20,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
   int _totalUsers = 0;
   int _totalPosts = 0;
   int _totalProjects = 0;
-  int _totalEvents = 0;
+  int _totalFreelanceProjects = 0;
   bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -29,20 +31,69 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 
   Future<void> _loadStats() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    
     try {
-      // Get users count
-      final usersResponse = await Supabase.instance.client
-          .from('users')
-          .select('*')
-          .count();
+      // Count users
+      int usersCount = 0;
+      try {
+        final usersData = await Supabase.instance.client
+            .from('users')
+            .select('id');
+        usersCount = (usersData as List).length;
+      } catch (e) {
+        debugPrint('Error counting users: $e');
+      }
+
+      // Count posts
+      int postsCount = 0;
+      try {
+        final postsData = await Supabase.instance.client
+            .from('posts')
+            .select('id');
+        postsCount = (postsData as List).length;
+      } catch (e) {
+        debugPrint('Error counting posts: $e');
+      }
+
+      // Count projects
+      int projectsCount = 0;
+      try {
+        final projectsData = await Supabase.instance.client
+            .from('projects')
+            .select('id');
+        projectsCount = (projectsData as List).length;
+      } catch (e) {
+        debugPrint('Error counting projects: $e');
+      }
+
+      // Count freelance projects
+      int freelanceCount = 0;
+      try {
+        final freelanceData = await Supabase.instance.client
+            .from('freelance_projects')
+            .select('project_id');
+        freelanceCount = (freelanceData as List).length;
+      } catch (e) {
+        debugPrint('Error counting freelance projects: $e');
+      }
 
       setState(() {
-        _totalUsers = usersResponse.count ?? 0;
+        _totalUsers = usersCount;
+        _totalPosts = postsCount;
+        _totalProjects = projectsCount;
+        _totalFreelanceProjects = freelanceCount;
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading stats: $e');
-      setState(() => _isLoading = false);
+      debugPrint('Error loading stats: $e');
+      setState(() {
+        _errorMessage = 'Failed to load statistics';
+        _isLoading = false;
+      });
     }
   }
 
@@ -55,6 +106,13 @@ class _AdminHomePageState extends State<AdminHomePage> {
         backgroundColor: Colors.red,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadStats,
+            tooltip: 'Refresh Statistics',
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -66,6 +124,28 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_errorMessage != null)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.red[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red[200]!),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.error_outline, color: Colors.red[700]),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _errorMessage!,
+                                style: TextStyle(color: Colors.red[700]),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     const Text(
                       'Overview',
                       style: TextStyle(
@@ -104,17 +184,17 @@ class _AdminHomePageState extends State<AdminHomePage> {
                           child: _buildStatCard(
                             'Projects',
                             _totalProjects.toString(),
-                            Icons.work,
+                            Icons.school,
                             Colors.orange,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildStatCard(
-                            'Events',
-                            _totalEvents.toString(),
-                            Icons.event,
-                            Colors.purple,
+                            'Freelance',
+                            _totalFreelanceProjects.toString(),
+                            Icons.work,
+                            Colors.red,
                           ),
                         ),
                       ],
@@ -137,12 +217,15 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       'View and manage all registered users',
                       Icons.people_outline,
                       Colors.blue,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const ManageUsersPage(),
-                        ),
-                      ),
+                      () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ManageUsersPage(),
+                          ),
+                        );
+                        _loadStats();
+                      },
                     ),
                     const SizedBox(height: 12),
                     _buildManagementOption(
@@ -150,25 +233,47 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       'Moderate and manage user posts',
                       Icons.article_outlined,
                       Colors.green,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const ManagePostsPage(),
-                        ),
-                      ),
+                      () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ManagePostsPage(),
+                          ),
+                        );
+                        _loadStats();
+                      },
                     ),
                     const SizedBox(height: 12),
                     _buildManagementOption(
                       'Manage Projects',
                       'Oversee graduation projects',
-                      Icons.work_outline,
+                      Icons.school_outlined,
                       Colors.orange,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const ManageProjectsPage(),
-                        ),
-                      ),
+                      () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ManageProjectsPage(),
+                          ),
+                        );
+                        _loadStats();
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _buildManagementOption(
+                      'Manage Freelancing Hub',
+                      'Post and manage freelance projects',
+                      Icons.work_outline,
+                      Colors.red,
+                      () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ManageFreelancingPage(),
+                          ),
+                        );
+                        _loadStats();
+                      },
                     ),
                     const SizedBox(height: 12),
                     _buildManagementOption(
@@ -176,12 +281,15 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       'Create and manage events',
                       Icons.event_outlined,
                       Colors.purple,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const ManageEventsPage(),
-                        ),
-                      ),
+                      () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ManageEventsPage(),
+                          ),
+                        );
+                        _loadStats();
+                      },
                     ),
                     const SizedBox(height: 12),
                     _buildManagementOption(
@@ -189,19 +297,22 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       'Job and internship postings',
                       Icons.business_center_outlined,
                       Colors.teal,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const ManageOpportunitiesPage(),
-                        ),
-                      ),
+                      () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ManageOpportunitiesPage(),
+                          ),
+                        );
+                        _loadStats();
+                      },
                     ),
                     const SizedBox(height: 12),
                     _buildManagementOption(
                       'Admin Reports',
                       'View analytics and reports',
                       Icons.assessment_outlined,
-                      Colors.red,
+                      Colors.indigo,
                       () => Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -264,7 +375,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     String subtitle,
     IconData icon,
     Color color,
-    VoidCallback onTap,
+    Future<void> Function() onTap,
   ) {
     return InkWell(
       onTap: onTap,
