@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../screens/calender_screen.dart';
 import '../screens/SavedPostsPage.dart'; // ✅ Add this import
+import '../screens/settings_page.dart'; // Add this line
 
 class UserDrawerContent extends StatefulWidget {
   final int userId;
@@ -138,11 +139,19 @@ class _UserDrawerContentState extends State<UserDrawerContent> {
                     },
                   ),
 
-                  ListTile(
-                    leading: const Icon(Icons.settings),
-                    title: const Text("Settings"),
-                    onTap: () {},
-                  ),
+                 ListTile(
+                  leading: const Icon(Icons.settings),
+                  title: const Text('Settings'),
+                  onTap: () {
+                    Navigator.pop(context); // Close the drawer
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SettingsPage(userId: widget.userId),
+                      ),
+                    );
+                  },
+                ),
 
                   const Spacer(),
 
