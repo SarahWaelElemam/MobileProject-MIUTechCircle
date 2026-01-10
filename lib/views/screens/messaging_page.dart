@@ -524,6 +524,7 @@ final messageRequestsProvider = Provider.family<List<Chat>, int>((ref, userId) {
 
 // Provider for filtered chats
 // Provider for filtered chats (accepted conversations only)
+// Provider for filtered chats (accepted conversations only)
 final filteredChatsProvider = Provider.family<List<Chat>, int>((ref, userId) {
   final chats = ref.watch(chatsProvider(userId));
   final query = ref.watch(searchQueryProvider).toLowerCase();
@@ -536,11 +537,10 @@ final filteredChatsProvider = Provider.family<List<Chat>, int>((ref, userId) {
         .toList();
   }
   
-  // ✅ When NOT searching, show only friends with accepted conversations
+  // ✅ When NOT searching, show ALL chats with accepted status
+  // (includes both friends AND accepted message requests)
   return chats
-      .where((c) => 
-          c.settings.isFriend && 
-          c.requestStatus == 'accepted')
+      .where((c) => c.requestStatus == 'accepted')
       .toList();
 });
 // StateNotifier for managing messages in a conversation
@@ -1845,21 +1845,18 @@ Future<void> _acceptRequest() async {
         .eq('conversation_id', conversationId!)
         .eq('user_id', currentUserId);
 
-    // ✅ CRITICAL: Update the local chat object's requestStatus
-    setState(() {
-      // This forces the UI to rebuild without isPending = true
-      // We create a new Chat object with updated status
-    });
-
-    // Reload chats to get updated status
-    await ref.read(chatsProvider(currentUserId).notifier).loadChats();
-    
     // Update the provider
     ref
         .read(chatsProvider(currentUserId).notifier)
         .updateRequestStatus(widget.chat.userId, 'accepted');
+    
+    // Reload chats to sync with database
+    await ref.read(chatsProvider(currentUserId).notifier).loadChats();
 
     if (mounted) {
+      // ✅ Go back to chat list
+      Navigator.pop(context);
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Message request accepted'),
@@ -1869,9 +1866,6 @@ Future<void> _acceptRequest() async {
           margin: const EdgeInsets.all(16),
         ),
       );
-      
-      // ✅ CRITICAL: Go back and reopen the chat with updated status
-      Navigator.pop(context); // Go back to chat list
     }
   } catch (e) {
     if (mounted) {
