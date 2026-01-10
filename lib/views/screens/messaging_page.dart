@@ -1941,7 +1941,7 @@ Future<void> _sendAttachmentFromBytes(
   String fileName,
   String mimeType,
 ) async {
-  if (conversationId == null ) return;
+  if (conversationId == null) return;
 
   setState(() => isSending = true);
 
@@ -1950,8 +1950,9 @@ Future<void> _sendAttachmentFromBytes(
     final extension = fileName.split('.').last;
     final uniqueFileName = '$conversationId/$timestamp.$extension';
 
+    // ✅ FIXED: Changed from 'chat-attachments' to 'chat_attachments'
     await supabase.storage
-        .from('chat-attachments')
+        .from('chat_attachments')
         .uploadBinary(
           uniqueFileName,
           bytes,
@@ -1961,8 +1962,9 @@ Future<void> _sendAttachmentFromBytes(
           ),
         );
 
+    // ✅ FIXED: Changed from 'chat-attachments' to 'chat_attachments'
     final publicUrl = supabase.storage
-        .from('chat-attachments')
+        .from('chat_attachments')
         .getPublicUrl(uniqueFileName);
 
     await supabase.from('messages').insert({
@@ -1973,7 +1975,7 @@ Future<void> _sendAttachmentFromBytes(
       'attachment_type': mimeType,
       'attachment_name': fileName,
       'created_at': DateTime.now().toIso8601String(),
-      'is_read': false, // ✅ FIXED: Start as unread for receiver
+      'is_read': false,
     });
 
     await supabase
@@ -1982,8 +1984,8 @@ Future<void> _sendAttachmentFromBytes(
         .eq('id', conversationId!);
 
     ref
-  .read(chatsProvider(currentUserId).notifier)
-  .updateLastMessage(widget.chat.userId, '📎 $fileName');
+        .read(chatsProvider(currentUserId).notifier)
+        .updateLastMessage(widget.chat.userId, '📎 $fileName');
 
   } catch (e) {
     if (mounted) {
@@ -2000,7 +2002,6 @@ Future<void> _sendAttachmentFromBytes(
     setState(() => isSending = false);
   }
 }
- 
   Future<void> _pickAndSendFile() async {
   try {
     FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.any);
@@ -2060,68 +2061,70 @@ Future<void> _sendAttachmentFromBytes(
   }
 
   Future<void> _sendAttachment(String filePath, String fileName, String mimeType) async {
-    if (conversationId == null ) return;
+  if (conversationId == null) return;
 
-    setState(() => isSending = true);
+  setState(() => isSending = true);
 
-    try {
-      final file = File(filePath);
-      final bytes = await file.readAsBytes();
+  try {
+    final file = File(filePath);
+    final bytes = await file.readAsBytes();
 
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final extension = fileName.split('.').last;
-      final uniqueFileName = '$conversationId/$timestamp.$extension';
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final extension = fileName.split('.').last;
+    final uniqueFileName = '$conversationId/$timestamp.$extension';
 
-      await supabase.storage
-          .from('chat-attachments')
-          .uploadBinary(
-            uniqueFileName,
-            bytes,
-            fileOptions: FileOptions(
-              contentType: mimeType,
-              upsert: false,
-            ),
-          );
-
-      final publicUrl = supabase.storage
-          .from('chat-attachments')
-          .getPublicUrl(uniqueFileName);
-
-      await supabase.from('messages').insert({
-        'conversation_id': conversationId,
-        'sender_id': currentUserId,
-        'content': fileName,
-        'attachment_url': publicUrl,
-        'attachment_type': mimeType,
-        'attachment_name': fileName,
-        'created_at': DateTime.now().toIso8601String(),
-        'is_read': false, // ✅ FIXED: Start as unread for receiver
-      });
-
-      await supabase
-          .from('conversations')
-          .update({'updated_at': DateTime.now().toIso8601String()})
-          .eq('id', conversationId!);
-
-      ref
-  .read(chatsProvider(currentUserId).notifier)
-  .updateLastMessage(widget.chat.userId, '📎 $fileName');
-
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.primary,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(16),
+    // ✅ FIXED: Changed from 'chat-attachments' to 'chat_attachments'
+    await supabase.storage
+        .from('chat_attachments')
+        .uploadBinary(
+          uniqueFileName,
+          bytes,
+          fileOptions: FileOptions(
+            contentType: mimeType,
+            upsert: false,
           ),
         );
-      }
-    } finally {
-      setState(() => isSending = false);
+
+    // ✅ FIXED: Changed from 'chat-attachments' to 'chat_attachments'
+    final publicUrl = supabase.storage
+        .from('chat_attachments')
+        .getPublicUrl(uniqueFileName);
+
+    await supabase.from('messages').insert({
+      'conversation_id': conversationId,
+      'sender_id': currentUserId,
+      'content': fileName,
+      'attachment_url': publicUrl,
+      'attachment_type': mimeType,
+      'attachment_name': fileName,
+      'created_at': DateTime.now().toIso8601String(),
+      'is_read': false,
+    });
+
+    await supabase
+        .from('conversations')
+        .update({'updated_at': DateTime.now().toIso8601String()})
+        .eq('id', conversationId!);
+
+    ref
+        .read(chatsProvider(currentUserId).notifier)
+        .updateLastMessage(widget.chat.userId, '📎 $fileName');
+
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
     }
+  } finally {
+    setState(() => isSending = false);
   }
+}
 
   Widget buildAvatar(String name, String? avatarUrl, double radius) {
     return buildAvatarHelper(name, avatarUrl, radius);
