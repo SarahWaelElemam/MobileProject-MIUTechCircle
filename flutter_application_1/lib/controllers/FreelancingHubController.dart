@@ -9,7 +9,7 @@ class FreelancingHubController {
   static Future<bool> createProject(Map<String, dynamic> projectData) async {
     try {
       debugPrint('🔍 Creating project...');
-      
+
       final currentUser = _supabase.auth.currentUser;
       if (currentUser == null) {
         debugPrint('❌ Not authenticated');
@@ -29,11 +29,13 @@ class FreelancingHubController {
         'created_at': DateTime.now().toIso8601String(),
       };
 
-      if (projectData['company_logo'] != null && projectData['company_logo'].toString().isNotEmpty) {
+      if (projectData['company_logo'] != null &&
+          projectData['company_logo'].toString().isNotEmpty) {
         insertData['company_logo'] = projectData['company_logo'];
       }
 
-      if (projectData['budget_range'] != null && projectData['budget_range'].toString().isNotEmpty) {
+      if (projectData['budget_range'] != null &&
+          projectData['budget_range'].toString().isNotEmpty) {
         insertData['budget_range'] = projectData['budget_range'];
       }
 
@@ -56,7 +58,7 @@ class FreelancingHubController {
   }) async {
     try {
       dynamic data;
-      
+
       if (isActive != null) {
         data = await _supabase
             .from('freelance_projects')
@@ -75,7 +77,10 @@ class FreelancingHubController {
       }
 
       return (data as List)
-          .map((json) => FreelanceProjectModel.fromMap(json as Map<String, dynamic>))
+          .map(
+            (json) =>
+                FreelanceProjectModel.fromMap(json as Map<String, dynamic>),
+          )
           .toList();
     } catch (e) {
       debugPrint('❌ Error fetching: $e');
@@ -99,7 +104,10 @@ class FreelancingHubController {
       }
 
       List<FreelanceProjectModel> projects = (data as List)
-          .map((json) => FreelanceProjectModel.fromMap(json as Map<String, dynamic>))
+          .map(
+            (json) =>
+                FreelanceProjectModel.fromMap(json as Map<String, dynamic>),
+          )
           .toList();
 
       if (keyword != null && keyword.isNotEmpty) {
@@ -108,9 +116,9 @@ class FreelancingHubController {
           final title = project.title.toLowerCase();
           final description = project.description.toLowerCase();
           final companyName = project.companyName.toLowerCase();
-          return title.contains(lowerKeyword) || 
-                 description.contains(lowerKeyword) || 
-                 companyName.contains(lowerKeyword);
+          return title.contains(lowerKeyword) ||
+              description.contains(lowerKeyword) ||
+              companyName.contains(lowerKeyword);
         }).toList();
       }
 
@@ -118,10 +126,12 @@ class FreelancingHubController {
         projects = projects.where((project) {
           final projectSkills = project.skillsNeeded;
           if (projectSkills.isEmpty) return false;
-          
+
           return skills.any((searchSkill) {
-            return projectSkills.any((projectSkill) => 
-              projectSkill.toLowerCase().contains(searchSkill.toLowerCase())
+            return projectSkills.any(
+              (projectSkill) => projectSkill.toLowerCase().contains(
+                searchSkill.toLowerCase(),
+              ),
             );
           });
         }).toList();
@@ -136,7 +146,10 @@ class FreelancingHubController {
 
   static Future<bool> deleteProject(String projectId) async {
     try {
-      await _supabase.from('freelance_projects').delete().eq('project_id', projectId);
+      await _supabase
+          .from('freelance_projects')
+          .delete()
+          .eq('project_id', projectId);
       return true;
     } catch (e) {
       debugPrint('❌ Error deleting: $e');
@@ -144,12 +157,18 @@ class FreelancingHubController {
     }
   }
 
-  static Future<bool> updateProjectStatus(String projectId, bool isActive) async {
+  static Future<bool> updateProjectStatus(
+    String projectId,
+    bool isActive,
+  ) async {
     try {
-      await _supabase.from('freelance_projects').update({
-        'is_active': isActive,
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('project_id', projectId);
+      await _supabase
+          .from('freelance_projects')
+          .update({
+            'is_active': isActive,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('project_id', projectId);
       return true;
     } catch (e) {
       debugPrint('❌ Error updating: $e');
@@ -187,7 +206,11 @@ class FreelancingHubController {
               .single();
 
           if (projectData != null) {
-            projects.add(FreelanceProjectModel.fromMap(projectData as Map<String, dynamic>));
+            projects.add(
+              FreelanceProjectModel.fromMap(
+                projectData as Map<String, dynamic>,
+              ),
+            );
           }
         } catch (e) {
           debugPrint('⚠️ Error fetching project $projectId: $e');
@@ -247,7 +270,10 @@ class FreelancingHubController {
       if (data == null || (data as List).isEmpty) return [];
 
       return (data as List)
-          .map((json) => FreelanceApplicationModel.fromMap(json as Map<String, dynamic>))
+          .map(
+            (json) =>
+                FreelanceApplicationModel.fromMap(json as Map<String, dynamic>),
+          )
           .toList();
     } catch (e) {
       debugPrint('❌ Error: $e');
@@ -276,7 +302,7 @@ class FreelancingHubController {
   }) async {
     try {
       debugPrint('🔍 Starting application submission...');
-      
+
       final currentUser = _supabase.auth.currentUser;
       if (currentUser == null) {
         debugPrint('❌ User not authenticated');
@@ -285,19 +311,45 @@ class FreelancingHubController {
 
       debugPrint('✅ User authenticated: ${currentUser.id}');
 
-      // project_id is UUID (text) but applicant_id is bigint
-      final numericUserId = currentUser.id.hashCode.abs();
+      // Fetch the REAL user ID from 'users' table using auth UUID
+      int? numericUserId;
+      String? userName;
+      final userEmail = currentUser.email;
+
+      try {
+        final userData = await _supabase
+            .from('users')
+            .select('user_id, name')
+            .eq('auth_user_id', currentUser.id)
+            .maybeSingle();
+
+        if (userData != null) {
+          numericUserId = userData['user_id'] as int?;
+          userName = userData['name'] as String?;
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error fetching user profile: $e');
+      }
+
+      // Fallback if users table entry doesn't exist (should not happen in normal flow)
+      numericUserId ??= currentUser.id.hashCode.abs();
 
       debugPrint('📊 Project ID (uuid): $projectId');
-      debugPrint('📊 User ID converted to bigint: $numericUserId');
+      debugPrint('📊 User ID (int): $numericUserId');
+      debugPrint('📊 User UUID: ${currentUser.id}');
 
-      // Check if already applied
+      // Check if already applied using UUID (more reliable) or int ID
       try {
-        final existing = await _supabase
+        var query = _supabase
             .from('freelance_applications')
             .select('application_id')
-            .eq('project_id', projectId)
-            .eq('applicant_id', numericUserId)
+            .eq('project_id', projectId);
+
+        // Check both UUID and int ID if columns exist
+        final existing = await query
+            .or(
+              'applicant_id.eq.$numericUserId,applicant_uuid.eq.${currentUser.id}',
+            )
             .maybeSingle();
 
         if (existing != null) {
@@ -305,18 +357,24 @@ class FreelancingHubController {
           return null;
         }
       } catch (checkError) {
-        debugPrint('⚠️ Could not check existing: $checkError');
+        debugPrint(
+          '⚠️ Could not check existing (might be first apply): $checkError',
+        );
       }
 
       debugPrint('✅ No existing application, proceeding with insert...');
 
-      // Insert application - ONLY include columns that definitely exist
+      // Insert application
       final insertData = {
         'project_id': projectId,
         'applicant_id': numericUserId,
+        'applicant_uuid': currentUser.id, // Store key link!
+        'applicant_email': userEmail,
+        'applicant_name': userName,
         'introduction': introduction,
         'status': 'pending',
         'applied_at': DateTime.now().toIso8601String(),
+        // 'match_score': 0.0 // Optional: can be calculated later
       };
 
       debugPrint('📤 Inserting: $insertData');
@@ -329,34 +387,27 @@ class FreelancingHubController {
             .single();
 
         debugPrint('✅ Application submitted successfully!');
-        debugPrint('📊 Result: $result');
-        
-        // Create model manually to avoid parsing errors
-        return FreelanceApplicationModel(
-          applicationId: result['application_id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
-          projectId: projectId,
-          applicantId: currentUser.id,
-          introduction: introduction,
-          status: 'pending',
-          appliedAt: DateTime.now(),
-        );
+
+        return FreelanceApplicationModel.fromMap(result);
       } catch (insertError) {
         debugPrint('❌ Insert error: $insertError');
-        
+
         // Check if the error is just a parsing issue but insert succeeded
-        if (insertError.toString().contains('successfully') || 
+        if (insertError.toString().contains('successfully') ||
             insertError.toString().contains('Application submitted')) {
-          debugPrint('✅ Application likely saved despite error');
           return FreelanceApplicationModel(
             applicationId: DateTime.now().millisecondsSinceEpoch.toString(),
             projectId: projectId,
-            applicantId: currentUser.id,
+            applicantId: numericUserId.toString(),
+            applicantUuid: currentUser.id,
+            applicantEmail: userEmail,
+            applicantName: userName,
             introduction: introduction,
             status: 'pending',
             appliedAt: DateTime.now(),
           );
         }
-        
+
         throw insertError;
       }
     } catch (e) {
@@ -375,6 +426,65 @@ class FreelancingHubController {
     } catch (e) {
       debugPrint('❌ Error: $e');
       return false;
+    }
+  }
+
+  // AI Feature: Calculate skill match percentage
+  static Future<double> calculateSkillMatchScore(
+    String applicantIdStr,
+    List<String> requiredSkills,
+  ) async {
+    try {
+      if (requiredSkills.isEmpty) return 100.0;
+
+      // Support both integer ID and UUID string for flexibility
+      dynamic userIdQuery = applicantIdStr;
+
+      // Try to parse to int if it looks like one, otherwise keep as string (UUID)
+      final applicantIdInt = int.tryParse(applicantIdStr);
+      if (applicantIdInt != null) {
+        userIdQuery = applicantIdInt;
+      }
+
+      final data = await _supabase
+          .from('skills')
+          .select('name')
+          .eq('user_id', userIdQuery);
+
+      if (data == null || (data as List).isEmpty) {
+        debugPrint('⚠️ No skills found for user: $applicantIdStr');
+        return 0.0;
+      }
+
+      final userSkills = (data as List)
+          .map((e) => e['name'].toString().toLowerCase())
+          .toList();
+
+      debugPrint('🔍 Comparing Skills for $applicantIdStr:');
+      debugPrint('   User Skills: $userSkills');
+      debugPrint('   Required: $requiredSkills');
+
+      int matchCount = 0;
+
+      for (var reqSkill in requiredSkills) {
+        final reqLower = reqSkill.toLowerCase();
+        // Check for fuzzy match
+        if (userSkills.any(
+          (uSkill) =>
+              uSkill == reqLower ||
+              uSkill.contains(reqLower) ||
+              reqLower.contains(uSkill),
+        )) {
+          matchCount++;
+        }
+      }
+
+      double score = (matchCount / requiredSkills.length) * 100;
+      debugPrint('✅ Calculated Score: $score%');
+      return score;
+    } catch (e) {
+      debugPrint('❌ Error calculating skill score: \$e');
+      return 0.0;
     }
   }
 }

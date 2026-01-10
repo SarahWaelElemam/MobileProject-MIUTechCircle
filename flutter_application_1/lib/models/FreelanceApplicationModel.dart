@@ -7,6 +7,12 @@ class FreelanceApplicationModel {
   final DateTime appliedAt;
   final DateTime? reviewedAt;
 
+  // New AI & Linkage Fields
+  final String? applicantUuid;
+  final String? applicantEmail;
+  final String? applicantName;
+  final double? matchScore;
+
   FreelanceApplicationModel({
     required this.applicationId,
     required this.projectId,
@@ -15,20 +21,30 @@ class FreelanceApplicationModel {
     required this.status,
     required this.appliedAt,
     this.reviewedAt,
+    this.applicantUuid,
+    this.applicantEmail,
+    this.applicantName,
+    this.matchScore,
   });
 
   factory FreelanceApplicationModel.fromMap(Map<String, dynamic> map) {
     return FreelanceApplicationModel(
       applicationId: map['application_id']?.toString() ?? '',
       projectId: map['project_id']?.toString() ?? '',
-      applicantId: map['applicant_id']?.toString() ?? '', // Fixed: converts int to string
+      applicantId: map['applicant_id']?.toString() ?? '',
       introduction: map['introduction']?.toString() ?? '',
       status: map['status']?.toString() ?? 'pending',
-      appliedAt: map['applied_at'] != null 
+      appliedAt: map['applied_at'] != null
           ? DateTime.parse(map['applied_at'] as String)
           : DateTime.now(),
-      reviewedAt: map['reviewed_at'] != null 
-          ? DateTime.parse(map['reviewed_at'] as String) 
+      reviewedAt: map['reviewed_at'] != null
+          ? DateTime.parse(map['reviewed_at'] as String)
+          : null,
+      applicantUuid: map['applicant_uuid']?.toString(),
+      applicantEmail: map['applicant_email']?.toString(),
+      applicantName: map['applicant_name']?.toString(),
+      matchScore: map['match_score'] != null
+          ? double.tryParse(map['match_score'].toString())
           : null,
     );
   }
@@ -41,6 +57,10 @@ class FreelanceApplicationModel {
       'status': status,
       'applied_at': appliedAt.toIso8601String(),
       'reviewed_at': reviewedAt?.toIso8601String(),
+      'applicant_uuid': applicantUuid,
+      'applicant_email': applicantEmail,
+      'applicant_name': applicantName,
+      'match_score': matchScore,
     };
   }
 
@@ -52,6 +72,10 @@ class FreelanceApplicationModel {
     String? status,
     DateTime? appliedAt,
     DateTime? reviewedAt,
+    String? applicantUuid,
+    String? applicantEmail,
+    String? applicantName,
+    double? matchScore,
   }) {
     return FreelanceApplicationModel(
       applicationId: applicationId ?? this.applicationId,
@@ -61,6 +85,10 @@ class FreelanceApplicationModel {
       status: status ?? this.status,
       appliedAt: appliedAt ?? this.appliedAt,
       reviewedAt: reviewedAt ?? this.reviewedAt,
+      applicantUuid: applicantUuid ?? this.applicantUuid,
+      applicantEmail: applicantEmail ?? this.applicantEmail,
+      applicantName: applicantName ?? this.applicantName,
+      matchScore: matchScore ?? this.matchScore,
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import '../../controllers/FreelancingHubController.dart';
 
 class ManageApplicationsPage extends StatefulWidget {
   const ManageApplicationsPage({super.key});
@@ -30,27 +31,43 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
     try {
       final applicationsData = await _supabase
           .from('freelance_applications')
-          .select('application_id, project_id, applicant_id, applicant_uuid, applicant_email, applicant_name, introduction, status, applied_at')
+          .select(
+            'application_id, project_id, applicant_id, applicant_uuid, applicant_email, applicant_name, introduction, status, applied_at',
+          )
           .order('applied_at', ascending: false);
 
       debugPrint('✅ Found ${(applicationsData as List).length} applications');
 
       List<Map<String, dynamic>> processedApplications = [];
-      
+
       for (var app in applicationsData) {
         try {
           // Fetch project details
           final projectData = await _supabase
               .from('freelance_projects')
-              .select('title, company_name, company_logo')
+              .select('title, company_name, company_logo, skills_needed')
               .eq('project_id', app['project_id'])
               .maybeSingle();
+
+          // AI Feature: Calculate Score
+          double aiScore = 0.0;
+          if (projectData != null && projectData['skills_needed'] != null) {
+            final skillsNeeded = List<String>.from(
+              projectData['skills_needed'],
+            );
+            // Use the numeric ID (applicant_id) not UUID for checking skills table
+            final numericId = app['applicant_id']?.toString() ?? '0';
+            aiScore = await FreelancingHubController.calculateSkillMatchScore(
+              numericId,
+              skillsNeeded,
+            );
+          }
 
           // Fetch user email from the application itself (stored during submission)
           String userEmail = app['applicant_email'] ?? 'Unknown Email';
           String userName = app['applicant_name'] ?? 'Unknown User';
           final applicantUuid = app['applicant_uuid'];
-          
+
           // If email/name not stored, try to look it up
           if (userEmail == 'Unknown Email' && applicantUuid != null) {
             try {
@@ -59,7 +76,7 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                   .select('email, full_name')
                   .eq('user_id', applicantUuid)
                   .maybeSingle();
-              
+
               if (userData != null) {
                 userEmail = userData['email'] ?? userEmail;
                 userName = userData['full_name'] ?? userName;
@@ -72,7 +89,8 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
           processedApplications.add({
             'application_id': app['application_id'],
             'project_id': app['project_id'],
-            'applicant_id': applicantUuid ?? app['applicant_id']?.toString() ?? 'Unknown',
+            'applicant_id':
+                applicantUuid ?? app['applicant_id']?.toString() ?? 'Unknown',
             'applicant_email': userEmail,
             'applicant_name': userName,
             'introduction': app['introduction'],
@@ -81,13 +99,17 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
             'project_title': projectData?['title'] ?? 'Unknown Project',
             'company_name': projectData?['company_name'] ?? 'Unknown Company',
             'company_logo': projectData?['company_logo'],
+            'ai_score': aiScore,
           });
         } catch (e) {
           debugPrint('⚠️ Error loading project for application: $e');
           processedApplications.add({
             'application_id': app['application_id'],
             'project_id': app['project_id'],
-            'applicant_id': app['applicant_uuid'] ?? app['applicant_id']?.toString() ?? 'Unknown',
+            'applicant_id':
+                app['applicant_uuid'] ??
+                app['applicant_id']?.toString() ??
+                'Unknown',
             'applicant_email': 'Unknown Email',
             'applicant_name': 'Unknown User',
             'introduction': app['introduction'],
@@ -96,6 +118,7 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
             'project_title': 'Unknown Project',
             'company_name': 'Unknown Company',
             'company_logo': null,
+            'ai_score': 0.0,
           });
         }
       }
@@ -132,76 +155,109 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
-                        const SizedBox(height: 16),
-                        Text('Error loading applications', 
-                          style: TextStyle(fontSize: 18, color: Colors.grey[600], fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        Text(_errorMessage!, 
-                          style: TextStyle(fontSize: 14, color: Colors.grey[500]), 
-                          textAlign: TextAlign.center),
-                        const SizedBox(height: 24),
-                        ElevatedButton.icon(
-                          onPressed: _loadApplications,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Retry'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red, 
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          ),
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 64,
+                      color: Colors.grey[400],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Error loading applications',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _errorMessage!,
+                      style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: _loadApplications,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
                         ),
-                      ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : _applications.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.inbox, size: 80, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No applications yet',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                )
-              : _applications.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.inbox, size: 80, color: Colors.grey[400]),
-                          const SizedBox(height: 16),
-                          Text('No applications yet', style: TextStyle(fontSize: 18, color: Colors.grey[600], fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 8),
-                          Text('Applications will appear here when users apply', style: TextStyle(fontSize: 14, color: Colors.grey[500])),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadApplications,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _applications.length,
-                        itemBuilder: (context, index) {
-                          final app = _applications[index];
-                          return _buildApplicationCard(app);
-                        },
-                      ),
-                    ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Applications will appear here when users apply',
+                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadApplications,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _applications.length,
+                itemBuilder: (context, index) {
+                  final app = _applications[index];
+                  return _buildApplicationCard(app);
+                },
+              ),
+            ),
     );
   }
 
   Widget _buildApplicationCard(Map<String, dynamic> application) {
     final status = application['status'] as String? ?? 'pending';
     final appliedAtStr = application['applied_at'] as String?;
-    final introduction = application['introduction'] as String? ?? 'No introduction provided';
+    final introduction =
+        application['introduction'] as String? ?? 'No introduction provided';
     final applicantId = application['applicant_id'] as String? ?? 'Unknown';
-    final applicantEmail = application['applicant_email'] as String? ?? 'Unknown Email';
-    final applicantName = application['applicant_name'] as String? ?? 'Unknown User';
-    final projectTitle = application['project_title'] as String? ?? 'Unknown Project';
-    final companyName = application['company_name'] as String? ?? 'Unknown Company';
+    final applicantEmail =
+        application['applicant_email'] as String? ?? 'Unknown Email';
+    final applicantName =
+        application['applicant_name'] as String? ?? 'Unknown User';
+    final projectTitle =
+        application['project_title'] as String? ?? 'Unknown Project';
+    final companyName =
+        application['company_name'] as String? ?? 'Unknown Company';
     final companyLogo = application['company_logo'] as String?;
-    
+    final double aiScore = application['ai_score'] as double? ?? 0.0;
+
     DateTime appliedAt;
     try {
-      appliedAt = appliedAtStr != null ? DateTime.parse(appliedAtStr) : DateTime.now();
+      appliedAt = appliedAtStr != null
+          ? DateTime.parse(appliedAtStr)
+          : DateTime.now();
     } catch (e) {
       appliedAt = DateTime.now();
     }
@@ -267,7 +323,11 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                             companyLogo,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
-                              return const Icon(Icons.business, color: Colors.red, size: 24);
+                              return const Icon(
+                                Icons.business,
+                                color: Colors.red,
+                                size: 24,
+                              );
                             },
                           ),
                         )
@@ -280,7 +340,10 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                     children: [
                       Text(
                         projectTitle,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -295,7 +358,10 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor,
                     borderRadius: BorderRadius.circular(20),
@@ -307,7 +373,11 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                       const SizedBox(width: 4),
                       Text(
                         status.toUpperCase(),
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
@@ -327,8 +397,14 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                       radius: 24,
                       backgroundColor: Colors.red.withOpacity(0.1),
                       child: Text(
-                        applicantName.isNotEmpty ? applicantName.substring(0, 1).toUpperCase() : 'U',
-                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 20),
+                        applicantName.isNotEmpty
+                            ? applicantName.substring(0, 1).toUpperCase()
+                            : 'U',
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -336,12 +412,76 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(applicantName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                           Text(
-                            applicantEmail, 
-                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            applicantName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          Text(
+                            applicantEmail,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Always show the score container, even if 0
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: aiScore >= 70
+                            ? Colors.green.withOpacity(0.1)
+                            : (aiScore >= 40
+                                  ? Colors.orange.withOpacity(0.1)
+                                  : (aiScore > 0
+                                        ? Colors.red.withOpacity(0.1)
+                                        : Colors.grey.withOpacity(0.1))),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: aiScore >= 70
+                              ? Colors.green
+                              : (aiScore >= 40
+                                    ? Colors.orange
+                                    : (aiScore > 0 ? Colors.red : Colors.grey)),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.auto_awesome,
+                            size: 14,
+                            color: aiScore >= 70
+                                ? Colors.green
+                                : (aiScore >= 40
+                                      ? Colors.orange
+                                      : (aiScore > 0
+                                            ? Colors.red
+                                            : Colors.grey)),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${aiScore.toInt()}% Match',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: aiScore >= 70
+                                  ? Colors.green
+                                  : (aiScore >= 40
+                                        ? Colors.orange
+                                        : (aiScore > 0
+                                              ? Colors.red
+                                              : Colors.grey)),
+                            ),
                           ),
                         ],
                       ),
@@ -353,11 +493,17 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                   children: [
                     Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
                     const SizedBox(width: 6),
-                    Text('Applied ${_timeAgo(appliedAt)}', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                    Text(
+                      'Applied ${_timeAgo(appliedAt)}',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                const Text('Introduction:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const Text(
+                  'Introduction:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
                 const SizedBox(height: 8),
                 Container(
                   width: double.infinity,
@@ -368,8 +514,12 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
                     border: Border.all(color: Colors.grey[200]!),
                   ),
                   child: Text(
-                    introduction, 
-                    style: TextStyle(fontSize: 13, color: Colors.grey[700], height: 1.5),
+                    introduction,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                      height: 1.5,
+                    ),
                   ),
                 ),
               ],
