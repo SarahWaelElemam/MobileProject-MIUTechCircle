@@ -165,7 +165,7 @@ class ChatsNotifier extends StateNotifier<List<Chat>> {
     _setupRealtimeSubscriptions();
   }
 
-  void _setupRealtimeSubscriptions() {
+ void _setupRealtimeSubscriptions() {
   _messagesChannel = supabase
       .channel('chats_messages_$currentUserId')
       .onPostgresChanges(
@@ -182,7 +182,6 @@ class ChatsNotifier extends StateNotifier<List<Chat>> {
             final content = newMessage['content'] as String? ?? '';
             final attachmentName = newMessage['attachment_name'] as String?;
             
-            // Find the other user in this conversation
             final participants = await supabase
                 .from('conversation_participants')
                 .select('user_id')
@@ -196,12 +195,10 @@ class ChatsNotifier extends StateNotifier<List<Chat>> {
             
             final otherUserId = participants[0]['user_id'] as int;
             
-            // Determine the message to display
             final displayMessage = attachmentName != null 
                 ? '📎 $attachmentName' 
                 : content;
             
-            // Find current chat to get unread count
             final currentChat = state.firstWhere(
               (c) => c.userId == otherUserId,
               orElse: () => Chat(
@@ -214,7 +211,6 @@ class ChatsNotifier extends StateNotifier<List<Chat>> {
               ),
             );
             
-            // Update last message and increment unread ONLY if message is from OTHER user
             if (senderId != currentUserId) {
               print('📩 Message from other user - incrementing unread count');
               updateLastMessage(
@@ -233,15 +229,65 @@ class ChatsNotifier extends StateNotifier<List<Chat>> {
       )
       .subscribe();
 
+  // ✅ FIXED: Subscribe to ALL changes in conversation_settings
   _settingsChannel = supabase
       .channel('chats_settings_$currentUserId')
       .onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'conversation_settings',
-        callback: (payload) {
-          print('🔔 Settings changed, refreshing chats...');
-          loadChats(); // Keep this as-is since settings changes are infrequent
+        callback: (payload) async {
+          print('🔔 Settings changed: ${payload.newRecord}');
+          
+          // ✅ NEW: Check if the change affects current user
+          final record = payload.newRecord;
+          final conversationId = record['conversation_id'] as String?;
+          
+          if (conversationId == null) return;
+          
+          // Find which user this conversation belongs to
+          try {
+            final participants = await supabase
+                .from('conversation_participants')
+                .select('user_id')
+                .eq('conversation_id', conversationId)
+                .neq('user_id', currentUserId);
+            
+            if ((participants as List).isEmpty) return;
+            
+            final otherUserId = participants[0]['user_id'] as int;
+            
+            // ✅ Check if THEY blocked ME
+            if (record['user_id'] == otherUserId && record['is_blocked'] != null) {
+              final isBlockedByOther = record['is_blocked'] as bool;
+              
+              print('🚫 Block status changed for user $otherUserId: blocked=$isBlockedByOther');
+              
+              // Find current chat
+              final currentChat = state.firstWhere(
+                (c) => c.userId == otherUserId,
+                orElse: () => Chat(
+                  id: '',
+                  name: '',
+                  userId: 0,
+                  lastMessage: '',
+                  settings: ChatSettings(),
+                  unreadCount: 0,
+                ),
+              );
+              
+              if (currentChat.userId != 0) {
+                // Update the block status in real-time
+                updateBlockStatus(
+                  otherUserId,
+                  currentChat.settings.isBlocked,
+                  isBlockedByOther,
+                );
+              }
+            }
+          } catch (e) {
+            print('❌ Error processing settings change: $e');
+          }
         },
       )
       .subscribe();
@@ -1546,70 +1592,71 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
   }
 
 
-  Future<void> initializeChat() async {
-    try {
-      currentUserId = widget.currentUserId;
-      print('🚀 Initializing chat with user ID: $currentUserId');
+ Future<void> initializeChat() async {
+  try {
+    currentUserId = widget.currentUserId;
+    print('🚀 Initializing chat with user ID: $currentUserId');
 
-      // Check if user exists in database
-      // Check if user exists in database
-try {
-  final userCheck = await supabase
-      .from('users')
-      .select('user_id, name')
-      .eq('user_id', currentUserId)
-      .maybeSingle();
-  
-  if (userCheck == null) {
+    try {
+      final userCheck = await supabase
+          .from('users')
+          .select('user_id, name')
+          .eq('user_id', currentUserId)
+          .maybeSingle();
+      
+      if (userCheck == null) {
+        if (mounted) {
+          setState(() => isLoading = false);
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('⚠️ User not found in database'),
+              backgroundColor: Colors.orange[700],
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
+        return;
+      }
+    } catch (e) {
+      print('Error checking user: $e');
+    }
+
+    await findOrCreateConversation();
+    
+    // ✅ Check if blocked initially
+    await _checkIfBlockedByOther();
+    
+    await loadMessages();
+    subscribeToMessages();
+    
+    // ✅ NEW: Subscribe to settings changes in real-time
+    _subscribeToSettingsChanges();
+    
+    if (mounted) {
+      setState(() => isLoading = false);
+    }
+  } catch (e) {
+    print('❌ Error initializing chat: $e');
     if (mounted) {
       setState(() => isLoading = false);
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('⚠️ User not found in database'),
-          backgroundColor: Colors.orange[700],
+          content: Text('Error: $e'),
+          backgroundColor: AppColors.primary,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           margin: const EdgeInsets.all(16),
         ),
       );
     }
-    return;
   }
-} catch (e) {
-  print('Error checking user: $e');
 }
-
-      await findOrCreateConversation();
-      
-      // Check if we're blocked by the other user
-      await _checkIfBlockedByOther();
-      
-      await loadMessages();
-      subscribeToMessages();
-      
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
-    } catch (e) {
-      print('❌ Error initializing chat: $e');
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.primary,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            margin: const EdgeInsets.all(16),
-          ),
-        );
-      }
-    }
-  }
 Future<void> _checkIfBlockedByOther() async {
   if (conversationId == null) return;
   
@@ -1857,6 +1904,77 @@ Future<void> createNewConversation() async {
         },
       )
       .subscribe();
+}
+void _subscribeToSettingsChanges() {
+  if (conversationId == null) return;
+
+  supabase
+      .channel('settings:$conversationId:${widget.chat.userId}')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'conversation_settings',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'conversation_id',
+          value: conversationId,
+        ),
+        callback: (payload) async {
+          print('🔔 Settings changed in chat room: ${payload.newRecord}');
+          
+          final record = payload.newRecord;
+          final settingsUserId = record['user_id'] as int?;
+          
+          // ✅ Only react if OTHER user changed their settings
+          if (settingsUserId == widget.chat.userId) {
+            final isBlockedByOther = record['is_blocked'] as bool? ?? false;
+            
+            print('🚫 Other user block status changed: $isBlockedByOther');
+            
+            // Update provider
+            ref
+                .read(chatsProvider(currentUserId).notifier)
+                .updateBlockStatus(
+                  widget.chat.userId,
+                  widget.chat.settings.isBlocked,
+                  isBlockedByOther,
+                );
+            
+            // Force UI update
+            if (mounted) {
+              setState(() {});
+            }
+            
+            // Show notification if just got blocked
+            if (isBlockedByOther && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      Icon(Icons.cancel_rounded, color: Colors.white, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '${widget.chat.name} has blocked you',
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: Colors.red[700],
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  margin: const EdgeInsets.all(16),
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+          }
+        },
+      )
+      .subscribe();
+  
+  print('✅ Subscribed to settings changes for conversation $conversationId');
 }
   void scrollToBottom() {
     if (scrollController.hasClients) {
