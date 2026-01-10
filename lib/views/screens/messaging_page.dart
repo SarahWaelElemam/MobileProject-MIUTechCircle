@@ -160,57 +160,95 @@ class ChatsNotifier extends StateNotifier<List<Chat>> {
   final int currentUserId;
   ChatsNotifier(this.currentUserId) : super([]);
 
-  Future<void> loadChats() async {
-    try {
-      // ✅ STEP 1: Get list of friends for current user
-      final friendshipsResponse = await supabase
-        .from('friendships')
-        .select('user_id, friend_id')
-        .eq('status', 'accepted')
-        .or('user_id.eq.$currentUserId,friend_id.eq.$currentUserId');
+Future<void> loadChats() async {
+  try {
+    // ✅ STEP 1: Get list of friends for current user
+    final friendshipsResponse = await supabase
+      .from('friendships')
+      .select('user_id, friend_id')
+      .eq('status', 'accepted')
+      .or('user_id.eq.$currentUserId,friend_id.eq.$currentUserId');
 
-      // Extract friend IDs where current user is involved
-      Set<int> friendIds = {};
-      for (var friendship in (friendshipsResponse as List)) {
-        if (friendship['user_id'] == currentUserId) {
-          friendIds.add(friendship['friend_id'] as int);
-        } else if (friendship['friend_id'] == currentUserId) {
-          friendIds.add(friendship['user_id'] as int);
-        }
+    // Extract friend IDs where current user is involved
+    Set<int> friendIds = {};
+    for (var friendship in (friendshipsResponse as List)) {
+      if (friendship['user_id'] == currentUserId) {
+        friendIds.add(friendship['friend_id'] as int);
+      } else if (friendship['friend_id'] == currentUserId) {
+        friendIds.add(friendship['user_id'] as int);
       }
+    }
 
-      // ✅ STEP 2: Get ALL users (not just friends) - we'll filter in the UI
-      final response = await supabase
-        .from('users')
-        .select('user_id, name, profile_image, bio, role, location')
-        .neq('user_id', currentUserId)  // Don't show current user
-        .order('name');
+    // ✅ STEP 2: Get ALL users (not just friends) - we'll filter in the UI
+    final response = await supabase
+      .from('users')
+      .select('user_id, name, profile_image, bio, role, location')
+      .neq('user_id', currentUserId)  // Don't show current user
+      .order('name');
 
-      final conversations = await _loadConversationsWithSettings();
+    final conversations = await _loadConversationsWithSettings();
 
-      state = (response as List).map((user) {
-        final existingConv = conversations.firstWhere(
-          (conv) => conv['other_user_id'] == user['user_id'],
-          orElse: () => <String, dynamic>{},
-        );
+    state = (response as List).map((user) {
+      final existingConv = conversations.firstWhere(
+  (conv) => conv['other_user_id'] == user['user_id'],
+  orElse: () => <String, dynamic>{},
+);
 
-        // ✅ Check if this user is a friend
-        final isFriend = friendIds.contains(user['user_id']);
+// ✅ Check if this user is a friend
+final isFriend = friendIds.contains(user['user_id']);
 
-      
-final requestStatus = existingConv['request_status'] ?? 
-                     (isFriend ? 'accepted' : 'none'); // ✅ NEW
+// ✅ FIXED: Determine request status
+// ✅ FIXED: Determine request status - SENDER should always be 'accepted'
+String requestStatus;
+if (existingConv.isEmpty) {
+  // No conversation exists yet
+  requestStatus = 'none';
+} else {
+  // Get MY request_status from MY conversation settings
+  final myRequestStatus = existingConv['my_request_status'];
+  
+  // ✅ DEBUG
+  print('🎯 Loading chat with ${user['name']} (user ${user['user_id']}):');
+  print('   My request_status from DB: $myRequestStatus');
+  print('   Am I friends with them: $isFriend');
+  
+  if (myRequestStatus == null) {
+    // ✅ CRITICAL FIX: If no settings exist BUT conversation has messages,
+    // check who sent the FIRST message to determine sender vs receiver
+    final firstMessage = existingConv['first_message_sender_id'];
+    
+    if (firstMessage == null) {
+      // No messages yet - default based on friendship
+      requestStatus = isFriend ? 'accepted' : 'pending';
+      print('   ⚠️ No messages yet! Using default: $requestStatus');
+    } else if (firstMessage == currentUserId) {
+      // I sent the first message, so I'm the SENDER - always accepted for me
+      requestStatus = 'accepted';
+      print('   ✅ I am the SENDER (sent first message) - status: accepted');
+    } else {
+      // They sent the first message, so I'm the RECEIVER - pending unless friends
+      requestStatus = isFriend ? 'accepted' : 'pending';
+      print('   ✅ I am the RECEIVER - status: $requestStatus');
+    }
+  } else {
+    // Use MY status from database
+    requestStatus = myRequestStatus;
+    print('   ✅ Using DB status: $requestStatus');
+  }
+}
 
 return Chat(
   id: user['user_id'].toString(),
   name: user['name'] ?? 'Unknown User',
   userId: user['user_id'],
   avatarUrl: user['profile_image'],
-  lastMessage: existingConv['last_message'] ?? user['bio'] ?? 'No bio available',
+  lastMessage: existingConv.isEmpty 
+      ? (user['bio'] ?? 'No bio available')
+      : (existingConv['last_message'] ?? 'Start a conversation'),
   conversationId: existingConv['conversation_id'],
   unreadCount: existingConv['unread_count'] ?? 0,
   lastMessageTime: existingConv['last_message_time'],
-  requestStatus: requestStatus, // ✅ NEW
+  requestStatus: requestStatus,
   settings: ChatSettings(
     isMuted: existingConv['is_muted'] ?? false,
     isBlocked: existingConv['is_blocked'] ?? false,
@@ -218,119 +256,168 @@ return Chat(
     isFriend: isFriend,
   ),
 );
-      }).toList();
-    } catch (e) {
-      print('Error loading chats: $e');
-      rethrow;
+    }).toList();
+    
+    // ✅ ADD DEBUG CODE HERE:
+    print('📊 LOADED ${state.length} CHATS for user $currentUserId:');
+    for (var chat in state) {
+      if (chat.conversationId != null) {
+        print('  - ${chat.name} (userId: ${chat.userId})');
+        print('    requestStatus: ${chat.requestStatus}');
+        print('    isFriend: ${chat.settings.isFriend}');
+        print('    conversationId: ${chat.conversationId}');
+        print('    lastMessage: ${chat.lastMessage}');
+        print('---');
+      }
     }
+    
+  } catch (e) {
+    print('Error loading chats: $e');
+    rethrow;
   }
+}
 
   Future<List<Map<String, dynamic>>> _loadConversationsWithSettings() async {
-    try {
-      final myParticipations = await supabase
-          .from('conversation_participants')
-          .select('conversation_id')
-          .eq('user_id', currentUserId);
+  try {
+    final myParticipations = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', currentUserId);
 
-      if ((myParticipations as List).isEmpty) {
-        return [];
+    if ((myParticipations as List).isEmpty) {
+      return [];
+    }
+
+    final myConvIds = myParticipations
+        .map((p) => p['conversation_id'] as String)
+        .toList();
+
+    final allParticipants = await supabase
+        .from('conversation_participants')
+        .select('conversation_id, user_id')
+        .inFilter('conversation_id', myConvIds);
+
+    Map<String, int> convToOtherUser = {};
+    for (var part in (allParticipants as List)) {
+      if (part['user_id'] != currentUserId) {
+        convToOtherUser[part['conversation_id']] = part['user_id'] as int;
       }
+    }
 
-      final myConvIds = myParticipations
-          .map((p) => p['conversation_id'] as String)
-          .toList();
+    // ✅ FIXED: Get MY settings with better query
+ // ✅ FIXED: Get MY settings with better query
+print('🔍 Loading settings for user $currentUserId, conversations: $myConvIds');
 
-      final allParticipants = await supabase
-          .from('conversation_participants')
-          .select('conversation_id, user_id')
-          .inFilter('conversation_id', myConvIds);
-
-     Map<String, int> convToOtherUser = {};
-      for (var part in (allParticipants as List)) {
-        if (part['user_id'] != currentUserId) {
-          convToOtherUser[part['conversation_id']] = part['user_id'] as int;
-        }
-      }
-
-      // Get MY settings (conversations I've muted/blocked)
-      // Get MY settings (conversations I've muted/blocked)
 final mySettings = await supabase
     .from('conversation_settings')
-    .select('conversation_id, is_muted, is_blocked, request_status') // ✅ NEW: added request_status
+    .select('conversation_id, is_muted, is_blocked, request_status, user_id')
     .eq('user_id', currentUserId)
     .inFilter('conversation_id', myConvIds);
 
-      // NEW: Get THEIR settings (check if they've blocked me)
-      final theirSettings = await supabase
-          .from('conversation_settings')
-          .select('conversation_id, user_id, is_blocked')
-          .inFilter('conversation_id', myConvIds)
-          .eq('is_blocked', true);
+print('🔍 Found ${(mySettings as List).length} settings rows:');
+for (var setting in (mySettings as List)) {
+  print('   Conv: ${setting['conversation_id']}, User: ${setting['user_id']}, Status: ${setting['request_status']}');
+}
+    // Get THEIR settings (check if they've blocked me)
+    final theirSettings = await supabase
+        .from('conversation_settings')
+        .select('conversation_id, user_id, is_blocked')
+        .inFilter('conversation_id', myConvIds)
+        .eq('is_blocked', true);
 
-      Map<String, bool> blockedByOther = {};
-      for (var setting in (theirSettings as List)) {
-        if (setting['user_id'] != currentUserId) {
-          blockedByOther[setting['conversation_id']] = true;
-        }
+    Map<String, bool> blockedByOther = {};
+    for (var setting in (theirSettings as List)) {
+      if (setting['user_id'] != currentUserId) {
+        blockedByOther[setting['conversation_id']] = true;
       }
-
-      // ✅ NEW: Get unread count and last message for each conversation
-      Map<String, int> unreadCounts = {};
-      Map<String, String> lastMessages = {};
-      Map<String, DateTime> lastMessageTimes = {};
-      
-      for (var convId in myConvIds) {
-        // Count unread messages (messages where is_read = false and sender is NOT current user)
-        final unreadResponse = await supabase
-            .from('messages')
-            .select('*')
-            .eq('conversation_id', convId)
-            .eq('is_read', false)
-            .neq('sender_id', currentUserId);
-        
-        unreadCounts[convId] = (unreadResponse as List).length;
-        
-        // Get last message
-        final lastMessageResponse = await supabase
-            .from('messages')
-            .select('content, created_at, attachment_name')
-            .eq('conversation_id', convId)
-            .order('created_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
-        
-        if (lastMessageResponse != null) {
-          if (lastMessageResponse['attachment_name'] != null) {
-            lastMessages[convId] = '📎 ${lastMessageResponse['attachment_name']}';
-          } else {
-            lastMessages[convId] = lastMessageResponse['content'] ?? '';
-          }
-          lastMessageTimes[convId] = DateTime.parse(lastMessageResponse['created_at']);
-        }
-      }
-
-      List<Map<String, dynamic>> result = [];
-      for (var setting in (mySettings as List)) {
-        final convId = setting['conversation_id'];
-       result.add({
-  'conversation_id': convId,
-  'other_user_id': convToOtherUser[convId],
-  'is_muted': setting['is_muted'] ?? false,
-  'is_blocked': setting['is_blocked'] ?? false,
-  'is_blocked_by_other': blockedByOther[convId] ?? false,
-  'request_status': setting['request_status'] ?? 'accepted', // ✅ NEW
-  'unread_count': unreadCounts[convId] ?? 0,
-  'last_message': lastMessages[convId],
-  'last_message_time': lastMessageTimes[convId],
-});
-      }
-
-      return result;
-    } catch (e) {
-      print('Error loading conversation settings: $e');
-      return [];
     }
+
+    // Get unread count and last message for each conversation
+// Get unread count, last message, and first message sender for each conversation
+    Map<String, int> unreadCounts = {};
+    Map<String, String> lastMessages = {};
+    Map<String, DateTime> lastMessageTimes = {};
+    Map<String, int> firstMessageSenders = {}; // ✅ NEW: Track who sent first message
+    
+    for (var convId in myConvIds) {
+      // Count unread messages
+      final unreadResponse = await supabase
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', convId)
+          .eq('is_read', false)
+          .neq('sender_id', currentUserId);
+      
+      unreadCounts[convId] = (unreadResponse as List).length;
+      
+      // ✅ NEW: Get FIRST message to determine sender
+      final firstMessageResponse = await supabase
+          .from('messages')
+          .select('sender_id')
+          .eq('conversation_id', convId)
+          .order('created_at', ascending: true)
+          .limit(1)
+          .maybeSingle();
+      
+      if (firstMessageResponse != null) {
+        firstMessageSenders[convId] = firstMessageResponse['sender_id'] as int;
+      }
+      
+      // Get last message
+      final lastMessageResponse = await supabase
+          .from('messages')
+          .select('content, created_at, attachment_name')
+          .eq('conversation_id', convId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      
+      if (lastMessageResponse != null) {
+        if (lastMessageResponse['attachment_name'] != null) {
+          lastMessages[convId] = '📎 ${lastMessageResponse['attachment_name']}';
+        } else {
+          lastMessages[convId] = lastMessageResponse['content'] ?? '';
+        }
+        lastMessageTimes[convId] = DateTime.parse(lastMessageResponse['created_at']);
+      }
+    }
+
+    // ✅ FIXED: Build result with proper request_status
+    List<Map<String, dynamic>> result = [];
+    
+    // Create a map for faster lookup
+    Map<String, Map<String, dynamic>> settingsMap = {};
+    for (var setting in (mySettings as List)) {
+      settingsMap[setting['conversation_id']] = setting;
+    }
+    
+    for (var convId in myConvIds) {
+      final setting = settingsMap[convId];
+      
+      // ✅ CRITICAL FIX: Include ALL conversations, even without settings
+   result.add({
+        'conversation_id': convId,
+        'other_user_id': convToOtherUser[convId],
+        'is_muted': setting?['is_muted'] ?? false,
+        'is_blocked': setting?['is_blocked'] ?? false,
+        'is_blocked_by_other': blockedByOther[convId] ?? false,
+        'my_request_status': setting?['request_status'], // Can be null
+        'first_message_sender_id': firstMessageSenders[convId], // ✅ NEW
+        'unread_count': unreadCounts[convId] ?? 0,
+        'last_message': lastMessages[convId],
+        'last_message_time': lastMessageTimes[convId],
+      });
+      
+      // ✅ DEBUG
+      print('🔍 Conv $convId: status=${setting?['request_status']}, otherUser=${convToOtherUser[convId]}');
+    }
+
+    return result;
+  } catch (e) {
+    print('Error loading conversation settings: $e');
+    return [];
   }
+}
 
 void updateLastMessage(int userId, String message, {int? unreadCount}) {
   state = [
@@ -409,9 +496,30 @@ final chatsProvider = StateNotifierProvider.family<ChatsNotifier, List<Chat>, in
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
 // ✅ NEW: Provider for message requests (pending)
+// ✅ FIXED: Provider for message requests (only show users who have SENT messages)
 final messageRequestsProvider = Provider.family<List<Chat>, int>((ref, userId) {
   final chats = ref.watch(chatsProvider(userId));
-  return chats.where((c) => c.requestStatus == 'pending').toList();
+  
+  // ✅ DEBUG: Print all chats to see what we have
+  print('🔍 MESSAGE REQUESTS FILTER for user $userId:');
+  print('   Total chats: ${chats.length}');
+  
+  final filtered = chats.where((c) {
+    final matches = c.requestStatus == 'pending' && 
+        c.conversationId != null && 
+        c.lastMessage.isNotEmpty && 
+        c.lastMessage != 'No bio available' && 
+        c.lastMessage != 'Start a conversation';
+    
+    if (c.conversationId != null) {
+      print('   - ${c.name}: requestStatus=${c.requestStatus}, hasConv=${c.conversationId != null}, lastMsg="${c.lastMessage}", matches=$matches');
+    }
+    
+    return matches;
+  }).toList();
+  
+  print('   ✅ Filtered requests: ${filtered.length}');
+  return filtered;
 });
 
 // Provider for filtered chats
@@ -441,17 +549,23 @@ class MessagesNotifier extends StateNotifier<List<Message>> {
 
   Future<void> loadMessages(String conversationId) async {
     try {
+      print('🔍 MessagesNotifier: Loading messages for $conversationId');
+      
       final response = await supabase
           .from('messages')
           .select('*')
           .eq('conversation_id', conversationId)
           .order('created_at', ascending: true);
 
+      print('🔍 MessagesNotifier: Got ${(response as List).length} messages from DB');
+
       state = (response as List)
           .map((msg) => Message.fromJson(msg as Map<String, dynamic>))
           .toList();
+          
+      print('✅ MessagesNotifier: State updated with ${state.length} messages');
     } catch (e) {
-      print('Error loading messages: $e');
+      print('❌ Error loading messages: $e');
       rethrow;
     }
   }
@@ -459,6 +573,7 @@ class MessagesNotifier extends StateNotifier<List<Message>> {
   void addMessage(Message message) {
     if (!state.any((m) => m.id == message.id)) {
       state = [...state, message];
+      print('➕ Added message to state: ${message.content}');
     }
   }
 
@@ -466,7 +581,6 @@ class MessagesNotifier extends StateNotifier<List<Message>> {
     state = [];
   }
 }
-
 // Provider for messages (parameterized by conversation ID)
 final messagesProvider = StateNotifierProvider.family<MessagesNotifier, List<Message>, String?>(
   (ref, conversationId) => MessagesNotifier(),
@@ -1383,89 +1497,138 @@ Future<void> _checkIfBlockedByOther() async {
       rethrow;
     }
   }
-  Future<void> createNewConversation() async {
-    try {
-      final newConversation = await supabase
-          .from('conversations')
-          .insert({
-            'created_at': DateTime.now().toIso8601String(),
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .select('id')
-          .single();
-      
-      conversationId = newConversation['id'];
+Future<void> createNewConversation() async {
+  try {
+    final newConversation = await supabase
+        .from('conversations')
+        .insert({
+          'created_at': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .select('id')
+        .single();
+    
+    conversationId = newConversation['id'];
+    print('🆕 Created conversation: $conversationId');
 
-      await supabase.from('conversation_participants').insert([
+    await supabase.from('conversation_participants').insert([
+      {
+        'conversation_id': conversationId,
+        'user_id': currentUserId,
+        'joined_at': DateTime.now().toIso8601String(),
+      },
+      {
+        'conversation_id': conversationId,
+        'user_id': widget.chat.userId,
+        'joined_at': DateTime.now().toIso8601String(),
+      },
+    ]);
+    print('✅ Added participants: $currentUserId and ${widget.chat.userId}');
+
+    // ✅ FIXED: Check actual friendship in database
+    final friendshipCheck = await supabase
+        .from('friendships')
+        .select('status')
+        .eq('status', 'accepted')
+        .or('and(user_id.eq.$currentUserId,friend_id.eq.${widget.chat.userId}),and(user_id.eq.${widget.chat.userId},friend_id.eq.$currentUserId)')
+        .maybeSingle();
+
+    final areFriends = friendshipCheck != null;
+
+    print('🔐 Creating conversation settings:');
+    print('   Sender (me): $currentUserId');
+    print('   Receiver: ${widget.chat.userId}');
+    print('   Are friends: $areFriends');
+
+    // ✅ For SENDER (currentUserId): ALWAYS accepted (they initiated)
+    try {
+      await supabase.from('conversation_settings').insert({
+        'conversation_id': conversationId,
+        'user_id': currentUserId,
+        'is_muted': false,
+        'is_blocked': false,
+        'request_status': 'accepted',
+      });
+      print('   ✅ Created sender settings with status: accepted');
+    } catch (e) {
+      print('   ❌ Error creating sender settings: $e');
+      rethrow;
+    }
+
+    // ✅ For RECEIVER (widget.chat.userId): pending if NOT friends, accepted if friends
+  // ✅ For RECEIVER (widget.chat.userId): pending if NOT friends, accepted if friends
+    final receiverStatus = areFriends ? 'accepted' : 'pending';
+    
+    // ✅ CRITICAL FIX: Insert BOTH settings in ONE operation
+    try {
+      await supabase.from('conversation_settings').insert([
         {
           'conversation_id': conversationId,
           'user_id': currentUserId,
-          'joined_at': DateTime.now().toIso8601String(),
+          'is_muted': false,
+          'is_blocked': false,
+          'request_status': 'accepted', // Sender is ALWAYS accepted
         },
         {
           'conversation_id': conversationId,
           'user_id': widget.chat.userId,
-          'joined_at': DateTime.now().toIso8601String(),
+          'is_muted': false,
+          'is_blocked': false,
+          'request_status': receiverStatus, // Receiver: pending if not friends
         },
       ]);
-      await supabase.from('conversation_participants').insert([
-  {
-    'conversation_id': conversationId,
-    'user_id': currentUserId,
-    'joined_at': DateTime.now().toIso8601String(),
-  },
-  {
-    'conversation_id': conversationId,
-    'user_id': widget.chat.userId,
-    'joined_at': DateTime.now().toIso8601String(),
-  },
-]);
-
-// ✅ NEW: Create conversation_settings for BOTH users
-// For current user: auto-accepted (since they initiated)
-await supabase.from('conversation_settings').insert({
-  'conversation_id': conversationId,
-  'user_id': currentUserId,
-  'is_muted': false,
-  'is_blocked': false,
-  'request_status': 'accepted', // They started it, so it's accepted for them
-});
-
-// For other user: pending if NOT friends, accepted if friends
-final requestStatus = widget.chat.settings.isFriend ? 'accepted' : 'pending';
-
-await supabase.from('conversation_settings').insert({
-  'conversation_id': conversationId,
-  'user_id': widget.chat.userId,
-  'is_muted': false,
-  'is_blocked': false,
-  'request_status': requestStatus, // ✅ NEW: pending for non-friends
-});
+      print('   ✅ Created settings for BOTH users:');
+      print('      - Sender ($currentUserId): accepted');
+      print('      - Receiver (${widget.chat.userId}): $receiverStatus');
     } catch (e) {
-      print('❌ Error creating conversation: $e');
+      print('   ❌ Error creating conversation settings: $e');
       rethrow;
     }
-  }
-
-  Future<void> loadMessages() async {
-    if (conversationId == null) return;
-
-    try {
-      await ref.read(messagesProvider(conversationId).notifier).loadMessages(conversationId!);
-      
-      // ✅ NEW: Mark all messages as read when opening chat
-      await _markMessagesAsRead();
-      
-      // ✅ NEW: Reload chat list to update unread count
-      await ref.read(chatsProvider(currentUserId).notifier).loadChats();
-      
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        scrollToBottom();
-      });
-    } catch (e) {
-      print('❌ Error loading messages: $e');
+    // ✅ Verify settings were created
+    final verifySettings = await supabase
+        .from('conversation_settings')
+        .select('*')
+        .eq('conversation_id', conversationId!);
+    
+    print('   🔍 Verification: Found ${(verifySettings as List).length} settings rows for this conversation');
+    for (var setting in (verifySettings as List)) {
+      print('      User ${setting['user_id']}: status=${setting['request_status']}');
     }
+
+  } catch (e) {
+    print('❌ Error creating conversation: $e');
+    rethrow;
   }
+}
+  Future<void> loadMessages() async {
+  if (conversationId == null) {
+    print('⚠️ Cannot load messages: conversationId is null');
+    return;
+  }
+
+  try {
+    print('📨 Loading messages for conversation: $conversationId');
+    
+    await ref.read(messagesProvider(conversationId).notifier).loadMessages(conversationId!);
+    
+    final loadedMessages = ref.read(messagesProvider(conversationId));
+    print('✅ Loaded ${loadedMessages.length} messages');
+    
+    // ✅ Only mark as read if NOT pending (receiver shouldn't auto-mark as read until accepting)
+    if (widget.chat.requestStatus != 'pending') {
+      await _markMessagesAsRead();
+      await ref.read(chatsProvider(currentUserId).notifier).loadChats();
+    } else {
+      print('⏸️ Request is pending, not marking as read yet');
+    }
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      scrollToBottom();
+    });
+  } catch (e) {
+    print('❌ Error loading messages: $e');
+  }
+}
 
   // ✅ NEW: Mark all unread messages as read
   Future<void> _markMessagesAsRead() async {
@@ -1682,6 +1845,16 @@ Future<void> _acceptRequest() async {
         .eq('conversation_id', conversationId!)
         .eq('user_id', currentUserId);
 
+    // ✅ CRITICAL: Update the local chat object's requestStatus
+    setState(() {
+      // This forces the UI to rebuild without isPending = true
+      // We create a new Chat object with updated status
+    });
+
+    // Reload chats to get updated status
+    await ref.read(chatsProvider(currentUserId).notifier).loadChats();
+    
+    // Update the provider
     ref
         .read(chatsProvider(currentUserId).notifier)
         .updateRequestStatus(widget.chat.userId, 'accepted');
@@ -1696,11 +1869,10 @@ Future<void> _acceptRequest() async {
           margin: const EdgeInsets.all(16),
         ),
       );
+      
+      // ✅ CRITICAL: Go back and reopen the chat with updated status
+      Navigator.pop(context); // Go back to chat list
     }
-
-    // Reload to update UI
-    await ref.read(chatsProvider(currentUserId).notifier).loadChats();
-    setState(() {});
   } catch (e) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2136,7 +2308,14 @@ Widget build(BuildContext context) {
   final isBlockedByOther = widget.chat.settings.isBlockedByOther;
   final cannotSend = isBlocked || isBlockedByOther;
   final messages = ref.watch(messagesProvider(conversationId));
-  final isPending = widget.chat.requestStatus == 'pending'; // ✅ NEW
+  
+  // ✅ FIXED: Get isPending from the provider so it updates when status changes
+  final chats = ref.watch(chatsProvider(currentUserId));
+  final currentChat = chats.firstWhere(
+    (c) => c.userId == widget.chat.userId,
+    orElse: () => widget.chat,
+  );
+  final isPending = currentChat.requestStatus == 'pending';
     
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -2284,232 +2463,302 @@ Widget build(BuildContext context) {
                     ),
                   ),
                 Expanded(
-                  child: Stack(
-                    children: [
-                      messages.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(24),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.primaryLight.withOpacity(0.1),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(
-                                      Icons.chat_bubble_outline_rounded,
-                                      size: 64,
-                                      color: AppColors.primary.withOpacity(0.5),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  Text(
-                                    'No messages yet',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      color: AppColors.textPrimary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    cannotSend ? 'Messaging is not available' : 'Start the conversation!',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.builder(
-                              controller: scrollController,
-                              reverse: true,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                              itemCount: messages.length,
-                              itemBuilder: (context, index) {
-                                final message = messages[messages.length - 1 - index];
-                                final isMe = message.senderId == currentUserId;
-                                
-                                bool showDateSeparator = false;
-                                if (index == messages.length - 1) {
-                                  showDateSeparator = true;
-                                } else {
-                                  final prevMessage = messages[messages.length - 2 - index];
-                                  if (message.createdAt.day != prevMessage.createdAt.day) {
-                                    showDateSeparator = true;
-                                  }
-                                }
-                                
-                                return Column(
-                                  children: [
-                                    if (showDateSeparator)
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 20),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.textSecondary.withOpacity(0.08),
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          child: Text(
-                                            _formatDate(message.createdAt),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                              color: AppColors.textSecondary,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    _buildMessageBubble(message, isMe),
-                                  ],
-                                );
-                              },
-                            ),
-                      if (cannotSend)
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            margin: const EdgeInsets.all(20),
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                            decoration: BoxDecoration(
-                              color: AppColors.surface,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.06),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  isBlockedByOther ? Icons.cancel_rounded : Icons.block_rounded, 
-                                  color: isBlockedByOther ? Colors.red[700] : AppColors.textSecondary, 
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 10),
-                                Flexible(
-                                  child: Text(
-                                    isBlockedByOther 
-                                        ? 'You cannot send messages '
-                                        : 'You cannot send messages to a blocked user',
-                                    style: TextStyle(
-                                      color: isBlockedByOther ? Colors.red[700] : AppColors.textSecondary,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+  child: Column(
+    children: [
+      // ✅ NEW: Show Accept/Decline banner for PENDING requests
+      if (isPending) 
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.blue[50],
+            border: Border(
+              bottom: BorderSide(color: Colors.blue[200]!, width: 1),
+            ),
+          ),
+          child: Column(
+            children: [
+              Text(
+                '${widget.chat.name} wants to send you a message',
+                style: TextStyle(
+                  color: Colors.blue[900],
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
                 ),
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 8,
-                        offset: const Offset(0, -2),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _declineRequest,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey[300],
+                        foregroundColor: Colors.grey[800],
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
-                    ],
-                  ),
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            onPressed: (cannotSend || isPending) ? null : openAttachments,
-                            icon: Icon(
-                              Icons.add_circle_rounded,
-                              color: cannotSend ? AppColors.textSecondary.withOpacity(0.3) : AppColors.primary,
-                              size: 28,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: cannotSend ? AppColors.background.withOpacity(0.5) : AppColors.background,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: cannotSend ? AppColors.divider.withOpacity(0.5) : AppColors.divider,
-                                  width: 1,
-                                ),
-                              ),
-                              child: TextField(
-                                controller: messageController,
-                                style: TextStyle(fontSize: 15, color: AppColors.textPrimary),
-                                decoration: InputDecoration(
-                                  hintText: (cannotSend || isPending)
-    ? (isPending ? "Accept request to reply" : (isBlockedByOther ? "You are blocked" : "Cannot send messages"))
-    : "Type a message...",
-                                  hintStyle: TextStyle(
-                                    color: cannotSend 
-                                        ? AppColors.textSecondary.withOpacity(0.5) 
-                                        : AppColors.textSecondary,
-                                  ),
-                                  border: InputBorder.none,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                ),
-                                maxLines: 5,
-                                minLines: 1,
-                                textCapitalization: TextCapitalization.sentences,
-                                onSubmitted: (_) => sendMessage(),
-                               enabled: !cannotSend && !isSending && !isPending,
-readOnly: cannotSend || isPending,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Material(
-                            color: cannotSend 
-                                ? AppColors.textSecondary.withOpacity(0.3)
-                                : (isSending ? AppColors.textSecondary : AppColors.primary),
-                            shape: const CircleBorder(),
-                            child: InkWell(
-                              onTap: (cannotSend || isSending || isPending) ? null : sendMessage,
-                              customBorder: const CircleBorder(),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: isSending
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                        ),
-                                      )
-                                    : Icon(
-                                        Icons.send_rounded,
-                                        color: cannotSend 
-                                            ? AppColors.textSecondary.withOpacity(0.5)
-                                            : Colors.white,
-                                        size: 22,
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      child: const Text('Decline', style: TextStyle(fontWeight: FontWeight.w600)),
                     ),
                   ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _acceptRequest,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue[600],
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      // ✅ Messages area
+      Expanded(
+        child: Stack(
+          children: [
+            messages.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryLight.withOpacity(0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 64,
+                            color: AppColors.primary.withOpacity(0.5),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          'No messages yet',
+                          style: TextStyle(
+                            fontSize: 20,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          cannotSend ? 'Messaging is not available' : 'Start the conversation!',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    controller: scrollController,
+                    reverse: true,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[messages.length - 1 - index];
+                      final isMe = message.senderId == currentUserId;
+                      
+                      bool showDateSeparator = false;
+                      if (index == messages.length - 1) {
+                        showDateSeparator = true;
+                      } else {
+                        final prevMessage = messages[messages.length - 2 - index];
+                        if (message.createdAt.day != prevMessage.createdAt.day) {
+                          showDateSeparator = true;
+                        }
+                      }
+                      
+                      return Column(
+                        children: [
+                          if (showDateSeparator)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppColors.textSecondary.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  _formatDate(message.createdAt),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          _buildMessageBubble(message, isMe),
+                        ],
+                      );
+                    },
+                  ),
+            if (cannotSend)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  margin: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        isBlockedByOther ? Icons.cancel_rounded : Icons.block_rounded, 
+                        color: isBlockedByOther ? Colors.red[700] : AppColors.textSecondary, 
+                        size: 16,
+                      ),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          isBlockedByOther 
+                              ? 'You cannot send messages '
+                              : 'You cannot send messages to a blocked user',
+                          style: TextStyle(
+                            color: isBlockedByOther ? Colors.red[700] : AppColors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+              ),
+          ],
+        ),
+      ),
+    ],
+  ),
+),
+                // ✅ FIXED: Hide input field completely for pending requests
+if (!isPending)
+  Container(
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.04),
+          blurRadius: 8,
+          offset: const Offset(0, -2),
+        ),
+      ],
+    ),
+    child: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            IconButton(
+              onPressed: cannotSend ? null : openAttachments,
+              icon: Icon(
+                Icons.add_circle_rounded,
+                color: cannotSend ? AppColors.textSecondary.withOpacity(0.3) : AppColors.primary,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: cannotSend ? AppColors.background.withOpacity(0.5) : AppColors.background,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: cannotSend ? AppColors.divider.withOpacity(0.5) : AppColors.divider,
+                    width: 1,
+                  ),
+                ),
+                child: TextField(
+                  controller: messageController,
+                  style: TextStyle(fontSize: 15, color: AppColors.textPrimary),
+                  decoration: InputDecoration(
+                    hintText: cannotSend
+                        ? (isBlockedByOther ? "You are blocked" : "Cannot send messages")
+                        : "Type a message...",
+                    hintStyle: TextStyle(
+                      color: cannotSend 
+                          ? AppColors.textSecondary.withOpacity(0.5) 
+                          : AppColors.textSecondary,
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                  maxLines: 5,
+                  minLines: 1,
+                  textCapitalization: TextCapitalization.sentences,
+                  onSubmitted: (_) => sendMessage(),
+                  enabled: !cannotSend && !isSending,
+                  readOnly: cannotSend,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Material(
+              color: cannotSend 
+                  ? AppColors.textSecondary.withOpacity(0.3)
+                  : (isSending ? AppColors.textSecondary : AppColors.primary),
+              shape: const CircleBorder(),
+              child: InkWell(
+                onTap: (cannotSend || isSending) ? null : sendMessage,
+                customBorder: const CircleBorder(),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: isSending
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : Icon(
+                          Icons.send_rounded,
+                          color: cannotSend 
+                              ? AppColors.textSecondary.withOpacity(0.5)
+                              : Colors.white,
+                          size: 22,
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  ),
               ],
             ),
     );
