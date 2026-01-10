@@ -40,15 +40,15 @@ class FreelancingHubProvider with ChangeNotifier {
   // 🚀 INITIALIZE - CALL THIS WHEN USER LOGS IN OR SCREEN LOADS
   // ============================================
   
-  Future<void> initialize() async {
+  Future<void> initialize({bool showInactive = false}) async {
     debugPrint('🚀 Initializing FreelancingHubProvider...');
     
     try {
       // Load everything in parallel
       await Future.wait([
-        loadProjects(),
+        loadProjects(showInactive: showInactive),  // ✅ Pass showInactive parameter
         loadSavedProjects(),
-        loadUserApplications(),  // ✅ CRITICAL: Load user's applications
+        loadUserApplications(),
       ]);
       
       _isInitialized = true;
@@ -69,16 +69,31 @@ class FreelancingHubProvider with ChangeNotifier {
   // LOAD PROJECTS
   // ============================================
 
-  Future<void> loadProjects({String sortBy = 'posted_at', bool ascending = false}) async {
+  Future<void> loadProjects({
+    String sortBy = 'posted_at', 
+    bool ascending = false,
+    bool showInactive = false,  // ✅ NEW: For admin to see inactive projects
+  }) async {
     _isLoadingProjects = true;
     _projectsError = null;
     notifyListeners();
 
     try {
-      _projects = await FreelancingHubController.fetchAllProjects(
-        sortBy: sortBy,
-        ascending: ascending,
-      );
+      if (showInactive) {
+        // Admin view: Show ALL projects (active + inactive)
+        _projects = await FreelancingHubController.fetchAllProjects(
+          sortBy: sortBy,
+          ascending: ascending,
+          isActive: null,  // null = get all projects
+        );
+      } else {
+        // User view: Show ONLY active projects
+        _projects = await FreelancingHubController.fetchAllProjects(
+          sortBy: sortBy,
+          ascending: ascending,
+          isActive: true,  // true = only active projects
+        );
+      }
       
       debugPrint('✅ Loaded ${_projects.length} projects');
       
@@ -127,13 +142,13 @@ class FreelancingHubProvider with ChangeNotifier {
   // ADMIN: CREATE PROJECT
   // ============================================
 
-  Future<bool> createProject(Map<String, dynamic> projectData) async {
+  Future<bool> createProject(Map<String, dynamic> projectData, {bool isAdminView = false}) async {
     try {
       final success = await FreelancingHubController.createProject(projectData);
       
       if (success) {
         // Reload projects to get the new one
-        await loadProjects();
+        await loadProjects(showInactive: isAdminView);
         return true;
       }
       return false;

@@ -2,87 +2,134 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
-class ManageEventsPage extends StatefulWidget {
-  const ManageEventsPage({super.key});
+class ManageAnnouncementsPage extends StatefulWidget {
+  const ManageAnnouncementsPage({super.key});
 
   @override
-  State<ManageEventsPage> createState() => _ManageEventsPageState();
+  State<ManageAnnouncementsPage> createState() => _ManageAnnouncementsPageState();
 }
 
-class _ManageEventsPageState extends State<ManageEventsPage> {
-  List<Map<String, dynamic>> _events = [];
+class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
+  List<Map<String, dynamic>> _announcements = [];
+  List<Map<String, dynamic>> _categories = [];
+  Map<int, Map<String, dynamic>> _userCache = {};
+  Map<int, String> _categoryCache = {};
   bool _isLoading = true;
   String? _errorMessage;
-  String _filterType = 'all'; // 'all', 'upcoming', 'past'
-  String _filterEventType = 'all'; // 'all', 'Course', 'Internship', 'Competition', 'Job', 'News'
+  String _filterType = 'all';
 
   @override
   void initState() {
     super.initState();
-    _loadEvents();
+    _loadCategories();
   }
 
-  Future<void> _loadEvents() async {
+  Future<void> _loadCategories() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('categories')
+          .select()
+          .order('name');
+
+      setState(() {
+        _categories = List<Map<String, dynamic>>.from(response);
+      });
+
+      for (var cat in _categories) {
+        _categoryCache[cat['category_id'] as int] = cat['name'] as String;
+      }
+
+      _loadAnnouncements();
+    } catch (e) {
+      debugPrint('❌ Error loading categories: $e');
+      _loadAnnouncements();
+    }
+  }
+
+  Future<void> _loadAnnouncements() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      // ✅ Fetch from events table
+      // ✅ Select all announcements (no category filtering)
       final response = await Supabase.instance.client
-          .from('events')
-          .select('event_id, title, description, date, time, location, mode, event_type, created_at')
-          .order('date', ascending: false);
+          .from('announcement')
+          .select('*')
+          .order('date', ascending: false)
+          .order('time', ascending: false);
 
-      List<Map<String, dynamic>> events = List<Map<String, dynamic>>.from(response);
+      List<Map<String, dynamic>> announcements = List<Map<String, dynamic>>.from(response);
 
-      // Filter by event type
-      if (_filterEventType != 'all') {
-        events = events.where((event) {
-          return event['event_type']?.toString().toLowerCase() == _filterEventType.toLowerCase();
-        }).toList();
+      // Fetch user details
+      Set<int> authorIds = announcements
+          .where((e) => e['auth_id'] != null)
+          .map((e) => e['auth_id'] as int)
+          .toSet();
+      
+      for (int authorId in authorIds) {
+        if (!_userCache.containsKey(authorId)) {
+          try {
+            final userResponse = await Supabase.instance.client
+                .from('users')
+                .select()
+                .eq('user_id', authorId)
+                .maybeSingle();
+
+            if (userResponse != null) {
+              _userCache[authorId] = userResponse;
+            }
+          } catch (e) {
+            debugPrint('⚠️ Could not load user $authorId: $e');
+            _userCache[authorId] = {
+              'user_id': authorId,
+              'full_name': 'User $authorId',
+              'email': '',
+            };
+          }
+        }
       }
 
       // Filter by time
       if (_filterType == 'upcoming') {
-        events = events.where((event) {
-          if (event['date'] == null) return false;
-          final eventDate = DateTime.parse(event['date']);
+        announcements = announcements.where((announcement) {
+          if (announcement['date'] == null) return false;
+          final eventDate = DateTime.parse(announcement['date']);
           return eventDate.isAfter(DateTime.now()) ||
               eventDate.isAtSameMomentAs(DateTime.now());
         }).toList();
       } else if (_filterType == 'past') {
-        events = events.where((event) {
-          if (event['date'] == null) return false;
-          final eventDate = DateTime.parse(event['date']);
+        announcements = announcements.where((announcement) {
+          if (announcement['date'] == null) return false;
+          final eventDate = DateTime.parse(announcement['date']);
           return eventDate.isBefore(DateTime.now());
         }).toList();
       }
 
       setState(() {
-        _events = events;
+        _announcements = announcements;
         _isLoading = false;
       });
 
-      debugPrint('✅ Loaded ${_events.length} events');
+      debugPrint('✅ Loaded ${_announcements.length} announcements');
     } catch (e) {
-      debugPrint('❌ Error loading events: $e');
+      debugPrint('❌ Error loading announcements: $e');
       setState(() {
-        _errorMessage = 'Failed to load events: $e';
+        _errorMessage = 'Failed to load announcements: $e';
         _isLoading = false;
       });
     }
   }
 
-  Future<void> _deleteEvent(String eventId, int index) async {
+  Future<void> _deleteAnnouncement(int announcementId, int index) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Event'),
+        title: const Text('Delete Announcement'),
         content: const Text(
-          'Are you sure you want to delete this event? This action cannot be undone.',
+          'Are you sure you want to delete this announcement? This action cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -101,18 +148,18 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
     if (confirm == true) {
       try {
         await Supabase.instance.client
-            .from('events')
+            .from('announcement')
             .delete()
-            .eq('event_id', eventId);
+            .eq('announcement_id', announcementId);
 
         setState(() {
-          _events.removeAt(index);
+          _announcements.removeAt(index);
         });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('✅ Event deleted successfully'),
+              content: Text('✅ Announcement deleted successfully'),
               backgroundColor: Colors.green,
             ),
           );
@@ -130,24 +177,21 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
     }
   }
 
-  // ✅ NEW: Show dialog to create or edit event
-  Future<void> _showEventDialog([Map<String, dynamic>? event]) async {
-    final isEditing = event != null;
-    final titleController = TextEditingController(text: event?['title'] ?? '');
-    final descriptionController = TextEditingController(text: event?['description'] ?? '');
-    final locationController = TextEditingController(text: event?['location'] ?? '');
+  // ✅ NEW: Show dialog to create or edit announcement
+  Future<void> _showAnnouncementDialog([Map<String, dynamic>? announcement]) async {
+    final isEditing = announcement != null;
+    final titleController = TextEditingController(text: announcement?['title'] ?? '');
+    final descriptionController = TextEditingController(text: announcement?['description'] ?? '');
     final dateController = TextEditingController(
-      text: event?['date'] ?? DateTime.now().toIso8601String().split('T')[0],
+      text: announcement?['date'] ?? DateTime.now().toIso8601String().split('T')[0],
     );
-    final timeController = TextEditingController(text: event?['time'] ?? '09:00:00');
-    
-    String selectedEventType = event?['event_type'] ?? 'Course';
-    String selectedMode = event?['mode'] ?? 'Offline';
-    DateTime selectedDate = event?['date'] != null 
-        ? DateTime.parse(event!['date'])
+    final timeController = TextEditingController(text: announcement?['time'] ?? '09:00:00');
+    int? selectedCategoryId = announcement?['category_id'] as int?;
+    DateTime selectedDate = announcement?['date'] != null 
+        ? DateTime.parse(announcement!['date'])
         : DateTime.now();
-    TimeOfDay selectedTime = event?['time'] != null
-        ? TimeOfDay.fromDateTime(DateFormat('HH:mm:ss').parse(event!['time']))
+    TimeOfDay selectedTime = announcement?['time'] != null
+        ? TimeOfDay.fromDateTime(DateFormat('HH:mm:ss').parse(announcement!['time']))
         : TimeOfDay.now();
 
     await showDialog(
@@ -155,7 +199,7 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(isEditing ? 'Edit Event' : 'New Event'),
+          title: Text(isEditing ? 'Edit Announcement' : 'New Announcement'),
           content: SingleChildScrollView(
             child: SizedBox(
               width: 500,
@@ -181,53 +225,22 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                   ),
                   const SizedBox(height: 16),
                   
-                  // Event Type Dropdown
-                  DropdownButtonFormField<String>(
-                    value: selectedEventType,
+                  // Category Dropdown
+                  DropdownButtonFormField<int>(
+                    value: selectedCategoryId,
                     decoration: const InputDecoration(
-                      labelText: 'Event Type *',
+                      labelText: 'Category *',
                       border: OutlineInputBorder(),
                     ),
-                    items: ['Course', 'Internship', 'Competition', 'Job', 'News']
-                        .map((type) => DropdownMenuItem(
-                              value: type,
-                              child: Text(type),
-                            ))
-                        .toList(),
+                    items: _categories.map((cat) {
+                      return DropdownMenuItem<int>(
+                        value: cat['category_id'] as int,
+                        child: Text(cat['name']),
+                      );
+                    }).toList(),
                     onChanged: (value) {
                       setDialogState(() {
-                        selectedEventType = value!;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  TextField(
-                    controller: locationController,
-                    decoration: const InputDecoration(
-                      labelText: 'Location',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.location_on),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Mode Dropdown
-                  DropdownButtonFormField<String>(
-                    value: selectedMode,
-                    decoration: const InputDecoration(
-                      labelText: 'Mode *',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: ['Online', 'Offline']
-                        .map((mode) => DropdownMenuItem(
-                              value: mode,
-                              child: Text(mode),
-                            ))
-                        .toList(),
-                    onChanged: (value) {
-                      setDialogState(() {
-                        selectedMode = value!;
+                        selectedCategoryId = value;
                       });
                     },
                   ),
@@ -301,41 +314,68 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                   );
                   return;
                 }
+                if (selectedCategoryId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please select a category'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
 
                 try {
-                  final eventData = {
+                  // Get current user ID
+                  final user = Supabase.instance.client.auth.currentUser;
+                  if (user == null) {
+                    throw Exception('No user logged in');
+                  }
+
+                  // Get user_id from users table
+                  final userResponse = await Supabase.instance.client
+                      .from('users')
+                      .select('user_id')
+                      .eq('auth_uuid', user.id)
+                      .maybeSingle();
+
+                  if (userResponse == null) {
+                    throw Exception('User not found in database');
+                  }
+
+                  final userId = userResponse['user_id'] as int;
+
+                  final announcementData = {
                     'title': titleController.text.trim(),
                     'description': descriptionController.text.trim(),
-                    'event_type': selectedEventType,
-                    'location': locationController.text.trim(),
-                    'mode': selectedMode,
                     'date': dateController.text,
                     'time': timeController.text,
+                    'category_id': selectedCategoryId,
+                    'auth_id': userId,
                   };
 
                   if (isEditing) {
-                    // Update existing event
+                    // Update existing announcement
                     await Supabase.instance.client
-                        .from('events')
-                        .update(eventData)
-                        .eq('event_id', event['event_id']);
+                        .from('announcement')
+                        .update(announcementData)
+                        .eq('announcement_id', announcement['announcement_id']);
                   } else {
-                    // Create new event
+                    // Create new announcement
                     await Supabase.instance.client
-                        .from('events')
-                        .insert(eventData);
+                        .from('announcement')
+                        .insert(announcementData);
                   }
 
                   Navigator.pop(ctx);
-                  _loadEvents();
+                  _loadAnnouncements();
 
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
                           isEditing
-                              ? '✅ Event updated successfully'
-                              : '✅ Event created successfully',
+                              ? '✅ Announcement updated successfully'
+                              : '✅ Announcement created successfully',
                         ),
                         backgroundColor: Colors.green,
                       ),
@@ -352,7 +392,7 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                   }
                 }
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
               child: Text(
                 isEditing ? 'Update' : 'Create',
                 style: const TextStyle(color: Colors.white),
@@ -369,33 +409,31 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Manage Events'),
-        backgroundColor: Colors.blue,
+        title: const Text('Manage Announcements'),
+        backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadEvents,
+            onPressed: _loadAnnouncements,
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showEventDialog(),
-        backgroundColor: Colors.blue,
+        onPressed: () => _showAnnouncementDialog(),
+        backgroundColor: Colors.purple,
         icon: const Icon(Icons.add),
-        label: const Text('New Event'),
+        label: const Text('New Announcement'),
       ),
       body: Column(
         children: [
-          // Filter Tabs
           Container(
             color: Colors.white,
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Time Filters
                 Row(
                   children: [
                     _buildFilterChip('All', 'all'),
@@ -410,49 +448,24 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.blue[50],
+                        color: Colors.purple[50],
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        '${_events.length} events',
+                        '${_announcements.length} announcements',
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: Colors.blue,
+                          color: Colors.purple,
                         ),
                       ),
                     ),
-                  ],
-                ),
-
-                // Event Type Filters
-                const SizedBox(height: 12),
-                const Text(
-                  'Filter by Type',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _buildTypeChip('All Types', 'all'),
-                    _buildTypeChip('Course', 'Course'),
-                    _buildTypeChip('Internship', 'Internship'),
-                    _buildTypeChip('Competition', 'Competition'),
-                    _buildTypeChip('Job', 'Job'),
-                    _buildTypeChip('News', 'News'),
                   ],
                 ),
               ],
             ),
           ),
 
-          // Events List
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -481,27 +494,27 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                             ),
                             const SizedBox(height: 16),
                             ElevatedButton.icon(
-                              onPressed: _loadEvents,
+                              onPressed: _loadAnnouncements,
                               icon: const Icon(Icons.refresh),
                               label: const Text('Retry'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
+                                backgroundColor: Colors.purple,
                                 foregroundColor: Colors.white,
                               ),
                             ),
                           ],
                         ),
                       )
-                    : _events.isEmpty
+                    : _announcements.isEmpty
                         ? Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.event_busy,
+                                Icon(Icons.campaign_outlined,
                                     size: 80, color: Colors.grey[400]),
                                 const SizedBox(height: 16),
                                 Text(
-                                  'No events found',
+                                  'No announcements found',
                                   style: TextStyle(
                                       fontSize: 18, color: Colors.grey[600]),
                                 ),
@@ -509,13 +522,13 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                             ),
                           )
                         : RefreshIndicator(
-                            onRefresh: _loadEvents,
+                            onRefresh: _loadAnnouncements,
                             child: ListView.builder(
                               padding: const EdgeInsets.all(16),
-                              itemCount: _events.length,
+                              itemCount: _announcements.length,
                               itemBuilder: (context, index) {
-                                final event = _events[index];
-                                return _buildEventCard(event, index);
+                                final announcement = _announcements[index];
+                                return _buildAnnouncementCard(announcement, index);
                               },
                             ),
                           ),
@@ -532,12 +545,12 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
         setState(() {
           _filterType = value;
         });
-        _loadEvents();
+        _loadAnnouncements();
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue : Colors.grey[200],
+          color: isSelected ? Colors.purple : Colors.grey[200],
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -552,45 +565,15 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
     );
   }
 
-  Widget _buildTypeChip(String label, String value) {
-    final isSelected = _filterEventType == value;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _filterEventType = value;
-        });
-        _loadEvents();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.blue : Colors.grey[100],
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? Colors.blue : Colors.grey[300]!,
-            width: 1.5,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? Colors.white : Colors.grey[700],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEventCard(Map<String, dynamic> event, int index) {
-    final title = event['title'] as String? ?? 'Untitled';
-    final description = event['description'] as String? ?? '';
-    final dateStr = event['date'] as String?;
-    final timeStr = event['time'] as String?;
-    final location = event['location'] as String?;
-    final mode = event['mode'] as String?;
-    final eventType = event['event_type'] as String?;
+  Widget _buildAnnouncementCard(Map<String, dynamic> announcement, int index) {
+    final title = announcement['title'] as String? ?? 'Untitled';
+    final description = announcement['description'] as String? ?? '';
+    final dateStr = announcement['date'] as String?;
+    final timeStr = announcement['time'] as String?;
+    final authorId = announcement['auth_id'] as int?;
+    final categoryId = announcement['category_id'] as int?;
+    final author = authorId != null ? _userCache[authorId] : null;
+    final categoryName = categoryId != null ? _categoryCache[categoryId] : null;
 
     DateTime? eventDate;
     if (dateStr != null) {
@@ -599,6 +582,11 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
 
     final isUpcoming = eventDate != null && eventDate.isAfter(DateTime.now());
     final isPast = eventDate != null && eventDate.isBefore(DateTime.now());
+
+    // Get announcement_id - check different possible field names
+    final announcementId = announcement['announcement_id'] as int? ??
+        announcement['id'] as int? ??
+        0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -624,7 +612,6 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -632,7 +619,7 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                   ? Colors.green.withOpacity(0.1)
                   : isPast
                       ? Colors.grey.withOpacity(0.1)
-                      : Colors.blue.withOpacity(0.1),
+                      : Colors.purple.withOpacity(0.1),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(16),
                 topRight: Radius.circular(16),
@@ -647,16 +634,16 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                         ? Colors.green.withOpacity(0.2)
                         : isPast
                             ? Colors.grey.withOpacity(0.2)
-                            : Colors.blue.withOpacity(0.2),
+                            : Colors.purple.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    _getEventIcon(eventType),
+                    Icons.campaign,
                     color: isUpcoming
                         ? Colors.green
                         : isPast
                             ? Colors.grey
-                            : Colors.blue,
+                            : Colors.purple,
                     size: 24,
                   ),
                 ),
@@ -672,26 +659,42 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      if (eventType != null)
-                        Container(
-                          margin: const EdgeInsets.only(top: 4),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            eventType,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.blue,
+                      Row(
+                        children: [
+                          if (author != null)
+                            Text(
+                              'By ${author['full_name'] ?? 'Unknown'}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
                             ),
-                          ),
-                        ),
+                          if (categoryName != null) ...[
+                            Text(
+                              ' • ',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.purple.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                categoryName,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.purple,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -705,7 +708,7 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                         ? Colors.green
                         : isPast
                             ? Colors.grey
-                            : Colors.blue,
+                            : Colors.purple,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -725,13 +728,11 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
             ),
           ),
 
-          // Event Details
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Date and Time
                 if (eventDate != null)
                   Row(
                     children: [
@@ -754,44 +755,6 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
                       const SizedBox(width: 8),
                       Text(
                         timeStr,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                if (location != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(Icons.location_on, size: 18, color: Colors.grey[600]),
-                      const SizedBox(width: 8),
-                      Text(
-                        location,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                if (mode != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(
-                        mode.toLowerCase() == 'online'
-                            ? Icons.computer
-                            : Icons.place,
-                        size: 18,
-                        color: Colors.grey[600],
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        mode,
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w500,
@@ -824,7 +787,6 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
             ),
           ),
 
-          // Action Buttons
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -837,65 +799,48 @@ class _ManageEventsPageState extends State<ManageEventsPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // ✅ Edit Button
-                ElevatedButton.icon(
-                  onPressed: () => _showEventDialog(event),
-                  icon: const Icon(Icons.edit, size: 18),
-                  label: const Text('Edit'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Delete Button
-                ElevatedButton.icon(
-                  onPressed: () =>
-                      _deleteEvent(event['event_id'].toString(), index),
-                  icon: const Icon(Icons.delete, size: 18),
-                  label: const Text('Delete'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                if (announcementId > 0) ...[
+                  // ✅ Edit Button
+                  ElevatedButton.icon(
+                    onPressed: () => _showAnnouncementDialog(announcement),
+                    icon: const Icon(Icons.edit, size: 18),
+                    label: const Text('Edit'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  // Delete Button
+                  ElevatedButton.icon(
+                    onPressed: () => _deleteAnnouncement(announcementId, index),
+                    icon: const Icon(Icons.delete, size: 18),
+                    label: const Text('Delete'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
         ],
       ),
     );
-  }
-
-  IconData _getEventIcon(String? eventType) {
-    if (eventType == null) return Icons.event;
-    switch (eventType.toLowerCase()) {
-      case 'course':
-        return Icons.school;
-      case 'internship':
-        return Icons.work;
-      case 'competition':
-        return Icons.emoji_events;
-      case 'job':
-        return Icons.business_center;
-      case 'news':
-        return Icons.article;
-      default:
-        return Icons.event;
-    }
   }
 }

@@ -57,6 +57,10 @@ class FreelancingHubController {
     try {
       dynamic data;
       
+      // ✅ FIX: Handle three cases:
+      // 1. isActive = true  → Only active projects (user view)
+      // 2. isActive = false → Only inactive projects
+      // 3. isActive = null  → ALL projects (admin view)
       if (isActive != null) {
         data = await _supabase
             .from('freelance_projects')
@@ -64,6 +68,7 @@ class FreelancingHubController {
             .eq('is_active', isActive)
             .order(sortBy, ascending: ascending);
       } else {
+        // null = get ALL projects (for admin)
         data = await _supabase
             .from('freelance_projects')
             .select('*')
@@ -354,10 +359,11 @@ class FreelancingHubController {
 
       debugPrint('✅ No existing application, proceeding with insert...');
 
-      // ✅ FIX: Use consistent column name - applicant_id (numeric)
+      // ✅ FIX: Store BOTH applicant_id (numeric) and applicant_uuid (for user lookup)
       final insertData = {
         'project_id': projectId,
-        'applicant_id': numericUserId,  // Using numeric ID
+        'applicant_id': numericUserId,  // Numeric ID for uniqueness
+        'applicant_uuid': currentUser.id,  // ✅ Store UUID for user lookup!
         'introduction': introduction,
         'status': 'pending',
         'applied_at': DateTime.now().toIso8601String(),
