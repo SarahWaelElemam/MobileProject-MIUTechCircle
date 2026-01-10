@@ -1,11 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AIService {
-  // TODO: Replace with your actual OpenAI API Key
-  static const String _apiKey =
-      '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';
+  static String get _apiKey => dotenv.env['OPENAI_API_KEY'] ?? '';
   static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
 
   static Future<Map<String, dynamic>> analyzeApplication({
@@ -15,7 +14,7 @@ class AIService {
     required String projectDescription,
   }) async {
     try {
-      if (_apiKey == 'YOUR_OPENAI_API_KEY_HERE') {
+      if (_apiKey.isEmpty || _apiKey == 'YOUR_OPENAI_API_KEY_HERE') {
         debugPrint('⚠️ OpenAI API Key is missing');
         return {'score': 0.0, 'reason': 'API Key missing'};
       }

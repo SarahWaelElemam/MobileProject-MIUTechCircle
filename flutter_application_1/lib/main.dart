@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // 🆕 ADD THIS
 
 // ================= Supabase =================
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,13 +27,16 @@ import 'providers/StoryProvider.dart';
 import 'providers/post_provider.dart';
 import 'providers/repost_provider.dart';
 import 'providers/comment_provider.dart';
-import 'providers/FreelancingHubProvider.dart';  // 🆕 ADD THIS
+import 'providers/FreelancingHubProvider.dart'; // 🆕 ADD THIS
 
 // ================= Services =================
 import 'services/supabase_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load environment variables
+  await dotenv.load(fileName: ".env");
 
   try {
     print("🔌 Initializing Supabase...");
