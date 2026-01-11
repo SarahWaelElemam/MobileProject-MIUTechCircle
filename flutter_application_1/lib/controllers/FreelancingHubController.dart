@@ -315,18 +315,30 @@ class FreelancingHubController {
       // Fetch the REAL user ID from 'users' table using auth UUID
       int? numericUserId;
       String? userName;
+      String? userRole;
+      String? userDepartment;
+      String? userAcademicYear;
+      String? userBio;
+      String? userLocation;
       final userEmail = currentUser.email;
 
       try {
         final userData = await _supabase
             .from('users')
-            .select('user_id, name')
+            .select(
+              'user_id, name, role, department, academic_year, bio, location',
+            )
             .eq('auth_user_id', currentUser.id)
             .maybeSingle();
 
         if (userData != null) {
           numericUserId = userData['user_id'] as int?;
           userName = userData['name'] as String?;
+          userRole = userData['role']?.toString();
+          userDepartment = userData['department']?.toString();
+          userAcademicYear = userData['academic_year']?.toString();
+          userBio = userData['bio']?.toString();
+          userLocation = userData['location']?.toString();
         }
       } catch (e) {
         debugPrint('⚠️ Error fetching user profile: $e');
@@ -384,39 +396,32 @@ class FreelancingHubController {
         );
         final projectDesc = projectData['description']?.toString() ?? '';
 
-        // 2. Fetch User Skills
+        // 2. Fetch User Qualifications
         List<String> userSkills = [];
+        List<String> userExperiences = [];
+        List<String> userLicenses = [];
+
         if (numericUserId != null) {
-          final skillsData = await _supabase
-              .from('skills')
-              .select('name, proficiency_level, endorsement_info')
-              .eq('user_id', numericUserId);
-
-          if (skillsData != null) {
-            userSkills = (skillsData as List).map((e) {
-              final name = e['name'].toString();
-              final level = e['proficiency_level']?.toString();
-              final endorsement = e['endorsement_info']?.toString();
-
-              String skillStr = name;
-              if (level != null && level.isNotEmpty) {
-                skillStr += ' ($level)';
-              }
-              if (endorsement != null && endorsement.isNotEmpty) {
-                skillStr += ' [Endorsed: $endorsement]';
-              }
-              return skillStr;
-            }).toList();
-          }
+          final qual = await _fetchUserQualifications(numericUserId);
+          userSkills = qual['skills']!;
+          userExperiences = qual['experiences']!;
+          userLicenses = qual['licenses']!;
         }
 
         // 3. Call AI Service
         debugPrint('🤖 Calling AI Service for analysis...');
         final analysis = await AIService.analyzeApplication(
           userSkills: userSkills,
+          userExperiences: userExperiences,
+          userLicenses: userLicenses,
           introduction: introduction,
           projectSkills: projectSkills,
           projectDescription: projectDesc,
+          userRole: userRole,
+          userDepartment: userDepartment,
+          userAcademicYear: userAcademicYear,
+          userBio: userBio,
+          userLocation: userLocation,
         );
 
         aiScore = analysis['score'] ?? 0.0;
@@ -578,52 +583,55 @@ class FreelancingHubController {
       // 2. Fetch User Skills (using UUID from 'users' table or direct linkage if needed)
       // We need to resolve UUID to Int ID if skills table uses Int ID.
       int? numericUserId;
+      String? userRole;
+      String? userDepartment;
+      String? userAcademicYear;
+      String? userBio;
+      String? userLocation;
 
       try {
         final userData = await _supabase
             .from('users')
-            .select('user_id')
+            .select('user_id, role, department, academic_year, bio, location')
             .eq('auth_user_id', applicantUuid)
             .maybeSingle();
 
         if (userData != null) {
           numericUserId = userData['user_id'] as int?;
+          userRole = userData['role']?.toString();
+          userDepartment = userData['department']?.toString();
+          userAcademicYear = userData['academic_year']?.toString();
+          userBio = userData['bio']?.toString();
+          userLocation = userData['location']?.toString();
         }
       } catch (e) {
         // Fallback or ignore
       }
 
       List<String> userSkills = [];
+      List<String> userExperiences = [];
+      List<String> userLicenses = [];
+
       if (numericUserId != null) {
-        final skillsData = await _supabase
-            .from('skills')
-            .select('name, proficiency_level, endorsement_info')
-            .eq('user_id', numericUserId);
-
-        if (skillsData != null) {
-          userSkills = (skillsData as List).map((e) {
-            final name = e['name'].toString();
-            final level = e['proficiency_level']?.toString();
-            final endorsement = e['endorsement_info']?.toString();
-
-            String skillStr = name;
-            if (level != null && level.isNotEmpty) {
-              skillStr += ' ($level)';
-            }
-            if (endorsement != null && endorsement.isNotEmpty) {
-              skillStr += ' [Endorsed: $endorsement]';
-            }
-            return skillStr;
-          }).toList();
-        }
+        final qual = await _fetchUserQualifications(numericUserId);
+        userSkills = qual['skills']!;
+        userExperiences = qual['experiences']!;
+        userLicenses = qual['licenses']!;
       }
 
       // 3. Call AI Service
       final analysis = await AIService.analyzeApplication(
         userSkills: userSkills,
+        userExperiences: userExperiences,
+        userLicenses: userLicenses,
         introduction: introduction,
         projectSkills: projectSkills,
         projectDescription: projectDesc,
+        userRole: userRole,
+        userDepartment: userDepartment,
+        userAcademicYear: userAcademicYear,
+        userBio: userBio,
+        userLocation: userLocation,
       );
 
       final newScore = analysis['score'] ?? 0.0;
@@ -641,5 +649,73 @@ class FreelancingHubController {
       debugPrint('❌ Error recalculating score: $e');
       return null;
     }
+  }
+
+  static Future<Map<String, List<String>>> _fetchUserQualifications(
+    int userId,
+  ) async {
+    List<String> skills = [];
+    List<String> experiences = [];
+    List<String> licenses = [];
+
+    try {
+      // Fetch Skills
+      final skillsData = await _supabase
+          .from('skills')
+          .select('name, proficiency_level, endorsement_info')
+          .eq('user_id', userId);
+
+      if (skillsData != null) {
+        skills = (skillsData as List).map((e) {
+          final name = e['name'].toString();
+          final level = e['proficiency_level']?.toString();
+          final endorsement = e['endorsement_info']?.toString();
+          String str = name;
+          if (level != null && level.isNotEmpty) str += ' ($level)';
+          if (endorsement != null && endorsement.isNotEmpty) {
+            str += ' [Endorsed: $endorsement]';
+          }
+          return str;
+        }).toList();
+      }
+
+      // Fetch Experiences
+      final expData = await _supabase
+          .from('experiences')
+          .select('title, company, start_date, end_date, description')
+          .eq('user_id', userId)
+          .order('start_date', ascending: false);
+
+      if (expData != null) {
+        experiences = (expData as List).map((e) {
+          final title = e['title'] ?? e['job_title'] ?? 'Role';
+          final company = e['company'] ?? e['company_name'] ?? 'Company';
+          final start = e['start_date'] ?? 'Unknown';
+          final end = e['end_date'] ?? 'Present';
+          final desc = e['description'] ?? '';
+          return "$title at $company ($start - $end): $desc";
+        }).toList();
+      }
+
+      // Fetch Licenses
+      final licData = await _supabase
+          .from('licenses')
+          .select('name, issuing_organization, issue_date')
+          .eq('user_id', userId)
+          .order('issue_date', ascending: false);
+
+      if (licData != null) {
+        licenses = (licData as List).map((e) {
+          final name = e['name'] ?? 'License';
+          final org = e['issuing_organization'] ?? 'Org';
+          final date = e['issue_date'] ?? '';
+          return "$name from $org ($date)";
+        }).toList();
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error fetching user qualifications: $e');
+    }
+
+    return {'skills': skills, 'experiences': experiences, 'licenses': licenses};
   }
 }
