@@ -477,6 +477,7 @@ class FreelancingHubController {
       final aiResult = await _calculateApplicationScore(
         projectId: projectId,
         numericUserId: numericUserId,
+        userUuid: currentUser.id, // <--- ADD THIS LINE (Pass the UUID)
         introduction: introduction,
         userRole: userRole,
         userDepartment: userDepartment,
@@ -667,6 +668,7 @@ class FreelancingHubController {
       final aiResult = await _calculateApplicationScore(
         projectId: projectId,
         numericUserId: numericUserId,
+        userUuid: applicantUuid, // <--- ADD THIS LINE (Pass the UUID)
         introduction: introduction,
         userRole: userRole,
         userDepartment: userDepartment,
@@ -695,6 +697,7 @@ class FreelancingHubController {
   static Future<Map<String, dynamic>> _calculateApplicationScore({
     required String projectId,
     required int? numericUserId,
+    required String userUuid, // <--- Add this parameter
     required String introduction,
     required String? userRole,
     required String? userDepartment,
@@ -703,7 +706,7 @@ class FreelancingHubController {
     required String? userLocation,
   }) async {
     double aiScore = 0.0;
-    String aiReason = '';
+    String aiReason = 'No analysis performed';
 
     try {
       // 1. Fetch Project Details
@@ -713,25 +716,35 @@ class FreelancingHubController {
           .eq('project_id', projectId)
           .single();
 
-      final projectSkills = List<String>.from(
-        projectData['skills_needed'] ?? [],
-      );
+      final rawSkills = projectData['skills_needed'];
+      List<String> projectSkills = [];
+      if (rawSkills is List) {
+        projectSkills = List<String>.from(rawSkills);
+      } else if (rawSkills is String) {
+        projectSkills = rawSkills.split(',').map((e) => e.trim()).toList();
+      }
+
       final projectDesc = projectData['description']?.toString() ?? '';
 
-      // 2. Fetch User Qualifications
-      List<String> userSkills = [];
-      List<String> userExperiences = [];
-      List<String> userLicenses = [];
+      // 2. Fetch User Qualifications (Robust Fetch)
+      // We pass BOTH the numeric ID and the UUID
+      final qual = await _fetchUserQualifications(numericUserId, userUuid);
 
-      if (numericUserId != null) {
-        final qual = await _fetchUserQualifications(numericUserId);
-        userSkills = qual['skills']!;
-        userExperiences = qual['experiences']!;
-        userLicenses = qual['licenses']!;
+      final userSkills = qual['skills'] ?? [];
+      final userExperiences = qual['experiences'] ?? [];
+      final userLicenses = qual['licenses'] ?? [];
+
+      debugPrint(
+        '📊 AI Inputs - Skills: ${userSkills.length}, Exp: ${userExperiences.length}',
+      );
+
+      if (userSkills.isEmpty && userExperiences.isEmpty) {
+        debugPrint(
+          '⚠️ WARNING: No skills/experience found. AI score will likely be 0.',
+        );
       }
 
       // 3. Call AI Service
-      debugPrint('🤖 Calling AI Service for analysis...');
       final analysis = await AIService.analyzeApplication(
         userSkills: userSkills,
         userExperiences: userExperiences,
@@ -746,78 +759,103 @@ class FreelancingHubController {
         userLocation: userLocation,
       );
 
-      aiScore = analysis['score'] ?? 0.0;
-      aiReason = analysis['reason'] ?? '';
-      debugPrint('🤖 AI Result: Score=$aiScore, Reason=$aiReason');
+      // Safe Parsing
+      final rawScore = analysis['score'];
+      if (rawScore is num) {
+        aiScore = rawScore.toDouble();
+      } else if (rawScore is String) {
+        aiScore = double.tryParse(rawScore) ?? 0.0;
+      }
+      aiReason = analysis['reason']?.toString() ?? 'Analysis complete';
     } catch (aiError) {
-      debugPrint('⚠️ AI Analysis failed (skipping): $aiError');
+      debugPrint('⚠️ AI Analysis failed: $aiError');
+      aiReason = "Analysis failed: ${aiError.toString()}";
     }
     return {'score': aiScore, 'reason': aiReason};
   }
 
+  // ✅ UPDATED: Robust Fetcher that tries INT first, then UUID
   static Future<Map<String, List<String>>> _fetchUserQualifications(
-    int userId,
+    int? numericId,
+    String userUuid,
   ) async {
     List<String> skills = [];
     List<String> experiences = [];
     List<String> licenses = [];
 
+    // Helper to try fetching from a table using different ID columns
+    Future<List<Map<String, dynamic>>> safeQuery(
+      String table,
+      String select,
+    ) async {
+      List<Map<String, dynamic>> data = [];
+
+      // Attempt 1: Try Numeric ID (user_id)
+      if (numericId != null) {
+        try {
+          final res = await _supabase
+              .from(table)
+              .select(select)
+              .eq('user_id', numericId);
+          if (res.isNotEmpty) return List<Map<String, dynamic>>.from(res);
+        } catch (_) {} // Ignore mismatch errors
+      }
+
+      // Attempt 2: Try UUID on 'user_id' (Some schemas use uuid for user_id)
+      try {
+        final res = await _supabase
+            .from(table)
+            .select(select)
+            .eq('user_id', userUuid);
+        if (res.isNotEmpty) return List<Map<String, dynamic>>.from(res);
+      } catch (_) {}
+
+      // Attempt 3: Try UUID on 'auth_user_id' (Explicit auth link)
+      try {
+        final res = await _supabase
+            .from(table)
+            .select(select)
+            .eq('auth_user_id', userUuid);
+        if (res.isNotEmpty) return List<Map<String, dynamic>>.from(res);
+      } catch (_) {}
+
+      return [];
+    }
+
     try {
-      // Fetch Skills
-      final skillsData = await _supabase
-          .from('skills')
-          .select('name, proficiency_level, endorsement_info')
-          .eq('user_id', userId);
+      // --- Fetch Skills ---
+      final skillsData = await safeQuery(
+        'skills',
+        'name, proficiency_level, endorsement_info',
+      );
+      skills = skillsData.map((e) {
+        final name = e['name'].toString();
+        final level = e['proficiency_level']?.toString() ?? '';
+        return level.isNotEmpty ? '$name ($level)' : name;
+      }).toList();
 
-      if (skillsData != null) {
-        skills = (skillsData as List).map((e) {
-          final name = e['name'].toString();
-          final level = e['proficiency_level']?.toString();
-          final endorsement = e['endorsement_info']?.toString();
-          String str = name;
-          if (level != null && level.isNotEmpty) str += ' ($level)';
-          if (endorsement != null && endorsement.isNotEmpty) {
-            str += ' [Endorsed: $endorsement]';
-          }
-          return str;
-        }).toList();
-      }
+      // --- Fetch Experiences ---
+      final expData = await safeQuery(
+        'experiences',
+        'title, company, start_date, end_date, description',
+      );
+      experiences = expData.map((e) {
+        final title = e['title'] ?? e['job_title'] ?? 'Role';
+        final company = e['company'] ?? e['company_name'] ?? 'Company';
+        return "$title at $company";
+      }).toList();
 
-      // Fetch Experiences
-      final expData = await _supabase
-          .from('experiences')
-          .select('title, company, start_date, end_date, description')
-          .eq('user_id', userId)
-          .order('start_date', ascending: false);
-
-      if (expData != null) {
-        experiences = (expData as List).map((e) {
-          final title = e['title'] ?? e['job_title'] ?? 'Role';
-          final company = e['company'] ?? e['company_name'] ?? 'Company';
-          final start = e['start_date'] ?? 'Unknown';
-          final end = e['end_date'] ?? 'Present';
-          final desc = e['description'] ?? '';
-          return "$title at $company ($start - $end): $desc";
-        }).toList();
-      }
-
-      // Fetch Licenses
-      final licData = await _supabase
-          .from('licenses')
-          .select('name, issuing_organization, issue_date')
-          .eq('user_id', userId)
-          .order('issue_date', ascending: false);
-
-      if (licData != null) {
-        licenses = (licData as List).map((e) {
-          final name = e['name'] ?? 'License';
-          final org = e['issuing_organization'] ?? 'Org';
-          final date = e['issue_date'] ?? '';
-          return "$name from $org ($date)";
-        }).toList();
-      }
+      // --- Fetch Licenses ---
+      final licData = await safeQuery(
+        'licenses',
+        'name, issuing_organization, issue_date',
+      );
+      licenses = licData.map((e) {
+        final name = e['name'] ?? 'License';
+        return name.toString();
+      }).toList();
     } catch (e) {
-      debugPrint('⚠️ Error fetching user qualifications: $e');
+      debugPrint('⚠️ Error fetching qualifications: $e');
     }
 
     return {'skills': skills, 'experiences': experiences, 'licenses': licenses};
