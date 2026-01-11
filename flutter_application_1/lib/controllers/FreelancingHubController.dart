@@ -157,14 +157,10 @@ class FreelancingHubController {
     }
   }
 
-  // ============================================
-  // ✅ FIXED: FETCH SAVED PROJECTS
-  // ============================================
   static Future<List<FreelanceProjectModel>> fetchSavedProjects() async {
     try {
       debugPrint('📥 Fetching saved projects...');
 
-      // Get current user
       final currentUser = _supabase.auth.currentUser;
       if (currentUser == null) {
         debugPrint('❌ No user logged in');
@@ -173,7 +169,6 @@ class FreelancingHubController {
 
       debugPrint('✅ User email: ${currentUser.email}');
 
-      // ✅ FIX: Get integer user_id from users table using email
       final userResponse = await _supabase
           .from('users')
           .select('user_id')
@@ -188,25 +183,22 @@ class FreelancingHubController {
       final userId = userResponse['user_id'] as int;
       debugPrint('✅ User ID: $userId');
 
-      // Get saved project IDs
       final savedRecords = await _supabase
           .from('saved_freelance_projects')
           .select('project_id')
-          .eq('user_id', userId)  // ✅ Using integer user_id
+          .eq('user_id', userId)
           .not('project_id', 'is', null);
 
       debugPrint('✅ Found ${savedRecords.length} saved project records');
 
       if (savedRecords.isEmpty) return [];
 
-      // Extract project IDs (they're UUIDs as strings)
       final projectIds = savedRecords
           .map((record) => record['project_id'].toString())
           .toList();
 
       debugPrint('📋 Project IDs: $projectIds');
 
-      // Fetch the actual projects
       final projectsData = await _supabase
           .from('freelance_projects')
           .select('*')
@@ -224,14 +216,10 @@ class FreelancingHubController {
     }
   }
 
-  // ============================================
-  // ✅ FIXED: TOGGLE SAVE PROJECT
-  // ============================================
   static Future<bool> toggleSaveProject({required String projectId}) async {
     try {
       debugPrint('🔖 toggleSaveProject called for: $projectId');
 
-      // Get current user
       final currentUser = _supabase.auth.currentUser;
       if (currentUser == null) {
         debugPrint('❌ No user logged in');
@@ -240,7 +228,6 @@ class FreelancingHubController {
 
       debugPrint('✅ User email: ${currentUser.email}');
 
-      // ✅ FIX: Get integer user_id from users table using email
       final userResponse = await _supabase
           .from('users')
           .select('user_id')
@@ -256,16 +243,14 @@ class FreelancingHubController {
       debugPrint('✅ User ID: $userId (type: int)');
       debugPrint('✅ Project ID: $projectId (type: uuid)');
 
-      // Check if already saved
       final existing = await _supabase
           .from('saved_freelance_projects')
           .select('saved_id')
-          .eq('user_id', userId)  // ✅ Using integer user_id
+          .eq('user_id', userId)
           .eq('project_id', projectId)
           .maybeSingle();
 
       if (existing != null) {
-        // UNSAVE - Delete the record
         debugPrint('🗑️ Unsaving project...');
         
         await _supabase
@@ -276,15 +261,13 @@ class FreelancingHubController {
         debugPrint('✅ Project unsaved successfully');
         return true;
       } else {
-        // SAVE - Insert new record
         debugPrint('💾 Saving project...');
-        debugPrint('📊 Insert data: user_id=$userId (int), project_id=$projectId (uuid), item_type=project');
         
         await _supabase
             .from('saved_freelance_projects')
             .insert({
-          'user_id': userId,           // ✅ INTEGER
-          'project_id': projectId,     // ✅ UUID (as string)
+          'user_id': userId,
+          'project_id': projectId,
           'item_type': 'project',
         });
 
@@ -298,9 +281,6 @@ class FreelancingHubController {
     }
   }
 
-  // ============================================
-  // APPLICATIONS
-  // ============================================
   static Future<List<FreelanceApplicationModel>> fetchUserApplications() async {
     try {
       debugPrint('📥 Fetching user applications...');
@@ -311,46 +291,31 @@ class FreelancingHubController {
         return [];
       }
 
-      debugPrint('🔍 User ID: ${currentUser.id}');
+      final userResponse = await _supabase
+          .from('users')
+          .select('user_id')
+          .eq('email', currentUser.email!)
+          .maybeSingle();
 
-      try {
-        final numericUserId = currentUser.id.hashCode.abs();
-        
-        final data = await _supabase
-            .from('freelance_applications')
-            .select('*')
-            .eq('applicant_id', numericUserId)
-            .order('applied_at', ascending: false);
-
-        if (data != null && (data as List).isNotEmpty) {
-          debugPrint('✅ Found ${(data as List).length} applications using applicant_id');
-          return (data as List)
-              .map((json) => FreelanceApplicationModel.fromMap(json as Map<String, dynamic>))
-              .toList();
-        }
-      } catch (e) {
-        debugPrint('⚠️ Failed with applicant_id: $e');
+      if (userResponse == null) {
+        debugPrint('⚠️ User not found in database');
+        return [];
       }
 
-      try {
-        final data = await _supabase
-            .from('freelance_applications')
-            .select('*')
-            .eq('applicant_uuid', currentUser.id)
-            .order('applied_at', ascending: false);
+      final realUserId = userResponse['user_id'] as int;
+      debugPrint('✅ Real User ID: $realUserId');
 
-        if (data != null && (data as List).isNotEmpty) {
-          debugPrint('✅ Found ${(data as List).length} applications using applicant_uuid');
-          return (data as List)
-              .map((json) => FreelanceApplicationModel.fromMap(json as Map<String, dynamic>))
-              .toList();
-        }
-      } catch (e) {
-        debugPrint('⚠️ Failed with applicant_uuid: $e');
-      }
+      final data = await _supabase
+          .from('freelance_applications')
+          .select('*')
+          .eq('applicant_id', realUserId)
+          .order('applied_at', ascending: false);
 
-      debugPrint('📊 No applications found for user');
-      return [];
+      debugPrint('✅ Found ${(data as List).length} applications');
+      
+      return (data as List)
+          .map((json) => FreelanceApplicationModel.fromMap(json as Map<String, dynamic>))
+          .toList();
       
     } catch (e) {
       debugPrint('❌ Error fetching applications: $e');
@@ -373,6 +338,9 @@ class FreelancingHubController {
     }
   }
 
+  // ============================================
+  // ✅ FIXED: SUBMIT APPLICATION WITH REAL USER_ID
+  // ============================================
   static Future<FreelanceApplicationModel?> submitApplication({
     required String projectId,
     required String introduction,
@@ -386,19 +354,34 @@ class FreelancingHubController {
         return null;
       }
 
-      debugPrint('✅ User authenticated: ${currentUser.id}');
+      debugPrint('✅ User authenticated: ${currentUser.email}');
 
-      final numericUserId = currentUser.id.hashCode.abs();
+      // ✅ FIXED: Only select 'name' column (no full_name)
+      final userResponse = await _supabase
+          .from('users')
+          .select('user_id, name')
+          .eq('email', currentUser.email!)
+          .maybeSingle();
+
+      if (userResponse == null) {
+        debugPrint('❌ User not found in database');
+        return null;
+      }
+
+      final realUserId = userResponse['user_id'] as int;
+      final userName = userResponse['name'] ?? currentUser.email;
 
       debugPrint('📊 Project ID: $projectId');
-      debugPrint('📊 Numeric User ID: $numericUserId');
+      debugPrint('📊 Real User ID: $realUserId');
+      debugPrint('📊 User Name: $userName');
 
+      // Check if already applied
       try {
         final existing = await _supabase
             .from('freelance_applications')
             .select('application_id')
             .eq('project_id', projectId)
-            .eq('applicant_id', numericUserId)
+            .eq('applicant_id', realUserId)
             .maybeSingle();
 
         if (existing != null) {
@@ -411,10 +394,13 @@ class FreelancingHubController {
 
       debugPrint('✅ No existing application, proceeding with insert...');
 
+      // ✅ Use REAL user_id as foreign key
       final insertData = {
         'project_id': projectId,
-        'applicant_id': numericUserId,
-        'applicant_uuid': currentUser.id,
+        'applicant_id': realUserId,           // ✅ Real user_id (FK to users)
+        'applicant_uuid': currentUser.id,     // Keep UUID for reference
+        'applicant_email': currentUser.email, // Store email
+        'applicant_name': userName,           // Store name
         'introduction': introduction,
         'status': 'pending',
         'applied_at': DateTime.now().toIso8601String(),
