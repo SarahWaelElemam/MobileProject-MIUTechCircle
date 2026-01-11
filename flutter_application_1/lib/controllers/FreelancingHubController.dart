@@ -380,56 +380,19 @@ class FreelancingHubController {
       // ---------------------------------------------------------
       // AI Analysis: Calculate Score on Apply
       // ---------------------------------------------------------
-      double aiScore = 0.0;
-      String aiReason = '';
+      final aiResult = await _calculateApplicationScore(
+        projectId: projectId,
+        numericUserId: numericUserId,
+        introduction: introduction,
+        userRole: userRole,
+        userDepartment: userDepartment,
+        userAcademicYear: userAcademicYear,
+        userBio: userBio,
+        userLocation: userLocation,
+      );
 
-      try {
-        // 1. Fetch Project Details
-        final projectData = await _supabase
-            .from('freelance_projects')
-            .select('skills_needed, description')
-            .eq('project_id', projectId)
-            .single();
-
-        final projectSkills = List<String>.from(
-          projectData['skills_needed'] ?? [],
-        );
-        final projectDesc = projectData['description']?.toString() ?? '';
-
-        // 2. Fetch User Qualifications
-        List<String> userSkills = [];
-        List<String> userExperiences = [];
-        List<String> userLicenses = [];
-
-        if (numericUserId != null) {
-          final qual = await _fetchUserQualifications(numericUserId);
-          userSkills = qual['skills']!;
-          userExperiences = qual['experiences']!;
-          userLicenses = qual['licenses']!;
-        }
-
-        // 3. Call AI Service
-        debugPrint('🤖 Calling AI Service for analysis...');
-        final analysis = await AIService.analyzeApplication(
-          userSkills: userSkills,
-          userExperiences: userExperiences,
-          userLicenses: userLicenses,
-          introduction: introduction,
-          projectSkills: projectSkills,
-          projectDescription: projectDesc,
-          userRole: userRole,
-          userDepartment: userDepartment,
-          userAcademicYear: userAcademicYear,
-          userBio: userBio,
-          userLocation: userLocation,
-        );
-
-        aiScore = analysis['score'] ?? 0.0;
-        aiReason = analysis['reason'] ?? '';
-        debugPrint('🤖 AI Result: Score=$aiScore, Reason=$aiReason');
-      } catch (aiError) {
-        debugPrint('⚠️ AI Analysis failed (skipping): $aiError');
-      }
+      final double aiScore = aiResult['score'];
+      final String aiReason = aiResult['reason'];
 
       // Insert application
       final insertData = {
@@ -649,6 +612,69 @@ class FreelancingHubController {
       debugPrint('❌ Error recalculating score: $e');
       return null;
     }
+  }
+
+  static Future<Map<String, dynamic>> _calculateApplicationScore({
+    required String projectId,
+    required int? numericUserId,
+    required String introduction,
+    required String? userRole,
+    required String? userDepartment,
+    required String? userAcademicYear,
+    required String? userBio,
+    required String? userLocation,
+  }) async {
+    double aiScore = 0.0;
+    String aiReason = '';
+
+    try {
+      // 1. Fetch Project Details
+      final projectData = await _supabase
+          .from('freelance_projects')
+          .select('skills_needed, description')
+          .eq('project_id', projectId)
+          .single();
+
+      final projectSkills = List<String>.from(
+        projectData['skills_needed'] ?? [],
+      );
+      final projectDesc = projectData['description']?.toString() ?? '';
+
+      // 2. Fetch User Qualifications
+      List<String> userSkills = [];
+      List<String> userExperiences = [];
+      List<String> userLicenses = [];
+
+      if (numericUserId != null) {
+        final qual = await _fetchUserQualifications(numericUserId);
+        userSkills = qual['skills']!;
+        userExperiences = qual['experiences']!;
+        userLicenses = qual['licenses']!;
+      }
+
+      // 3. Call AI Service
+      debugPrint('🤖 Calling AI Service for analysis...');
+      final analysis = await AIService.analyzeApplication(
+        userSkills: userSkills,
+        userExperiences: userExperiences,
+        userLicenses: userLicenses,
+        introduction: introduction,
+        projectSkills: projectSkills,
+        projectDescription: projectDesc,
+        userRole: userRole,
+        userDepartment: userDepartment,
+        userAcademicYear: userAcademicYear,
+        userBio: userBio,
+        userLocation: userLocation,
+      );
+
+      aiScore = analysis['score'] ?? 0.0;
+      aiReason = analysis['reason'] ?? '';
+      debugPrint('🤖 AI Result: Score=$aiScore, Reason=$aiReason');
+    } catch (aiError) {
+      debugPrint('⚠️ AI Analysis failed (skipping): $aiError');
+    }
+    return {'score': aiScore, 'reason': aiReason};
   }
 
   static Future<Map<String, List<String>>> _fetchUserQualifications(
