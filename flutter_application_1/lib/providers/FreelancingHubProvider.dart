@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/FreelanceProjectModel.dart';
 import '../models/FreelanceApplicationModel.dart';
 import '../controllers/FreelancingHubController.dart';
@@ -11,6 +12,9 @@ class FreelancingHubProvider with ChangeNotifier {
 
   // Saved projects
   final Set<String> _savedProjectIds = {};  // UUID as String
+
+  // ✅ NEW: Saved posts
+  final Set<int> _savedPostIds = {};  // Post IDs as int
 
   // Applications
   final Map<String, FreelanceApplicationModel> _userApplications = {}; // projectId -> application
@@ -27,6 +31,9 @@ class FreelancingHubProvider with ChangeNotifier {
   
   bool isProjectSaved(String projectId) => _savedProjectIds.contains(projectId);
   
+  // ✅ NEW: Check if post is saved
+  bool isPostSaved(int postId) => _savedPostIds.contains(postId);
+  
   bool hasApplied(String projectId) {
     final result = _userApplications.containsKey(projectId);
     debugPrint('🔍 hasApplied($projectId): $result');
@@ -37,24 +44,25 @@ class FreelancingHubProvider with ChangeNotifier {
   int getApplicationCount(String projectId) => _applicationCounts[projectId] ?? 0;
 
   // ============================================
-  // 🚀 INITIALIZE - CALL THIS WHEN USER LOGS IN OR SCREEN LOADS
+  // 🚀 INITIALIZE
   // ============================================
   
   Future<void> initialize({bool showInactive = false}) async {
     debugPrint('🚀 Initializing FreelancingHubProvider...');
     
     try {
-      // Load everything in parallel
       await Future.wait([
-        loadProjects(showInactive: showInactive),  // ✅ Pass showInactive parameter
+        loadProjects(showInactive: showInactive),
         loadSavedProjects(),
+        loadSavedPosts(),  // ✅ NEW
         loadUserApplications(),
       ]);
       
       _isInitialized = true;
       debugPrint('✅ FreelancingHubProvider initialized successfully');
       debugPrint('📊 Projects: ${_projects.length}');
-      debugPrint('📊 Saved: ${_savedProjectIds.length}');
+      debugPrint('📊 Saved Projects: ${_savedProjectIds.length}');
+      debugPrint('📊 Saved Posts: ${_savedPostIds.length}');
       debugPrint('📊 Applications: ${_userApplications.length}');
       
     } catch (e) {
@@ -72,7 +80,7 @@ class FreelancingHubProvider with ChangeNotifier {
   Future<void> loadProjects({
     String sortBy = 'posted_at', 
     bool ascending = false,
-    bool showInactive = false,  // ✅ NEW: For admin to see inactive projects
+    bool showInactive = false,
   }) async {
     _isLoadingProjects = true;
     _projectsError = null;
@@ -80,24 +88,21 @@ class FreelancingHubProvider with ChangeNotifier {
 
     try {
       if (showInactive) {
-        // Admin view: Show ALL projects (active + inactive)
         _projects = await FreelancingHubController.fetchAllProjects(
           sortBy: sortBy,
           ascending: ascending,
-          isActive: null,  // null = get all projects
+          isActive: null,
         );
       } else {
-        // User view: Show ONLY active projects
         _projects = await FreelancingHubController.fetchAllProjects(
           sortBy: sortBy,
           ascending: ascending,
-          isActive: true,  // true = only active projects
+          isActive: true,
         );
       }
       
       debugPrint('✅ Loaded ${_projects.length} projects');
       
-      // Load application counts for all projects
       if (_projects.isNotEmpty) {
         await loadApplicationCounts(_projects.map((p) => p.projectId).toList());
       }
@@ -123,7 +128,6 @@ class FreelancingHubProvider with ChangeNotifier {
         skills: skills,
       );
       
-      // Load application counts for search results
       if (_projects.isNotEmpty) {
         await loadApplicationCounts(_projects.map((p) => p.projectId).toList());
       }
@@ -147,7 +151,6 @@ class FreelancingHubProvider with ChangeNotifier {
       final success = await FreelancingHubController.createProject(projectData);
       
       if (success) {
-        // Reload projects to get the new one
         await loadProjects(showInactive: isAdminView);
         return true;
       }
@@ -167,7 +170,6 @@ class FreelancingHubProvider with ChangeNotifier {
       final success = await FreelancingHubController.deleteProject(projectId);
       
       if (success) {
-        // Remove from local list
         _projects.removeWhere((p) => p.projectId == projectId);
         notifyListeners();
         return true;
@@ -194,7 +196,6 @@ class FreelancingHubProvider with ChangeNotifier {
       );
       
       if (success) {
-        // Update local list
         final index = _projects.indexWhere((p) => p.projectId == projectId);
         if (index != -1) {
           _projects[index] = project.copyWith(isActive: newStatus);
@@ -225,9 +226,7 @@ class FreelancingHubProvider with ChangeNotifier {
     }
   }
 
-  Future<void> toggleSaveProject({
-    required String projectId,
-  }) async {
+  Future<void> toggleSaveProject({required String projectId}) async {
     try {
       final success = await FreelancingHubController.toggleSaveProject(
         projectId: projectId,
@@ -247,11 +246,100 @@ class FreelancingHubProvider with ChangeNotifier {
   }
 
   // ============================================
-  // APPLICATIONS - CRITICAL FOR PERSISTENCE
+  // ✅ NEW: SAVED POSTS
   // ============================================
 
-  /// ✅ CRITICAL METHOD: Loads all applications for the current user
-  /// This is what makes applications persist across login sessions
+  Future<void> loadSavedPosts() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      final userResponse = await Supabase.instance.client
+          .from('users')
+          .select('user_id')
+          .eq('email', user.email!)
+          .maybeSingle();
+
+      if (userResponse == null) return;
+      final userId = userResponse['user_id'] as int;
+
+      final savedPosts = await Supabase.instance.client
+          .from('saved_freelance_projects')
+          .select('post_id')
+          .eq('user_id', userId)
+          .not('post_id', 'is', null);
+
+      _savedPostIds.clear();
+      for (var saved in savedPosts) {
+        if (saved['post_id'] != null) {
+          _savedPostIds.add(saved['post_id'] as int);
+        }
+      }
+
+      debugPrint('✅ Loaded ${_savedPostIds.length} saved posts');
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ Error loading saved posts: $e');
+    }
+  }
+
+  Future<bool> toggleSavePost({required int postId}) async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) {
+        debugPrint('❌ No user logged in');
+        return false;
+      }
+
+      final userResponse = await Supabase.instance.client
+          .from('users')
+          .select('user_id')
+          .eq('email', user.email!)
+          .maybeSingle();
+
+      if (userResponse == null) {
+        debugPrint('❌ User not found');
+        return false;
+      }
+
+      final userId = userResponse['user_id'] as int;
+
+      if (_savedPostIds.contains(postId)) {
+        // Unsave
+        await Supabase.instance.client
+            .from('saved_freelance_projects')
+            .delete()
+            .eq('user_id', userId)
+            .eq('post_id', postId);
+
+        _savedPostIds.remove(postId);
+        debugPrint('✅ Post $postId unsaved');
+      } else {
+        // Save
+        await Supabase.instance.client
+            .from('saved_freelance_projects')
+            .insert({
+          'user_id': userId,
+          'post_id': postId,
+          'item_type': 'post',
+        });
+
+        _savedPostIds.add(postId);
+        debugPrint('✅ Post $postId saved');
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error toggling save post: $e');
+      return false;
+    }
+  }
+
+  // ============================================
+  // APPLICATIONS
+  // ============================================
+
   Future<void> loadUserApplications() async {
     try {
       debugPrint('📥 Loading user applications from database...');
@@ -298,8 +386,6 @@ class FreelancingHubProvider with ChangeNotifier {
 
       if (application != null) {
         _userApplications[projectId] = application;
-        
-        // Update application count
         _applicationCounts[projectId] = (_applicationCounts[projectId] ?? 0) + 1;
         
         debugPrint('✅ Application submitted and saved to state');
@@ -346,18 +432,20 @@ class FreelancingHubProvider with ChangeNotifier {
     await Future.wait([
       loadProjects(),
       loadSavedProjects(),
-      loadUserApplications(),  // ✅ Always reload applications on refresh
+      loadSavedPosts(),  // ✅ NEW
+      loadUserApplications(),
     ]);
   }
 
   // ============================================
-  // RESET - Call this on logout
+  // RESET
   // ============================================
   
   void reset() {
     debugPrint('🧹 Resetting FreelancingHubProvider state');
     _projects.clear();
     _savedProjectIds.clear();
+    _savedPostIds.clear();  // ✅ NEW
     _userApplications.clear();
     _applicationCounts.clear();
     _isInitialized = false;
