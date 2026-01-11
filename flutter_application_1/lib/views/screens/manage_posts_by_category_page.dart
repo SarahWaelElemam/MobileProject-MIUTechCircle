@@ -13,7 +13,6 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
   List<Map<String, dynamic>> _categories = [];
   Map<String, dynamic>? _selectedCategory;
   List<Map<String, dynamic>> _posts = [];
-  Map<int, Map<String, dynamic>> _userCache = {}; // Cache user details
   bool _isLoadingCategories = true;
   bool _isLoadingPosts = false;
   String? _errorMessage;
@@ -68,43 +67,61 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
     });
 
     try {
-      // ✅ FIX: Fetch posts WITHOUT relying on foreign key
+      debugPrint('📥 Loading posts for category: ${category['name']}');
+
+      // ✅ USE JOIN to get user data directly from users table
       final postsResponse = await Supabase.instance.client
           .from('posts')
-          .select('post_id, content, media_url, file_url, created_at, updated_at, author_id')
+          .select('''
+            post_id,
+            content,
+            media_url,
+            file_url,
+            created_at,
+            updated_at,
+            author_id,
+            users!author_id (
+              user_id,
+              name,
+              email,
+              profile_image,
+              role
+            )
+          ''')
           .eq('category_id', category['category_id'])
           .order('created_at', ascending: false);
 
-      List<Map<String, dynamic>> posts = List<Map<String, dynamic>>.from(postsResponse);
+      debugPrint('✅ Found ${(postsResponse as List).length} posts');
 
-      // ✅ FIX: Fetch user details separately for each unique author
-      Set<int> authorIds = posts.map((p) => p['author_id'] as int).toSet();
-      
-      for (int authorId in authorIds) {
-        if (!_userCache.containsKey(authorId)) {
-          try {
-            final userResponse = await Supabase.instance.client
-                .from('users')
-                .select('user_id, full_name, email')
-                .eq('user_id', authorId)
-                .maybeSingle();
+      List<Map<String, dynamic>> processedPosts = [];
 
-            if (userResponse != null) {
-              _userCache[authorId] = userResponse;
-            }
-          } catch (e) {
-            debugPrint('⚠️ Could not load user $authorId: $e');
-            _userCache[authorId] = {
-              'user_id': authorId,
-              'full_name': 'User $authorId',
-              'email': '',
-            };
-          }
-        }
+      for (var post in postsResponse) {
+        final userData = post['users'];
+        
+        final String userName = userData?['name'] ?? 'Unknown User';
+        final String? userEmail = userData?['email'];
+        final String? userImage = userData?['profile_image'];
+        final String? userRole = userData?['role'];
+
+        processedPosts.add({
+          'post_id': post['post_id'],
+          'content': post['content'],
+          'media_url': post['media_url'],
+          'file_url': post['file_url'],
+          'created_at': post['created_at'],
+          'updated_at': post['updated_at'],
+          'author_id': post['author_id'],
+          'user_name': userName,
+          'user_email': userEmail,
+          'user_image': userImage,
+          'user_role': userRole,
+        });
+
+        debugPrint('  ✅ Post by: $userName ($userEmail)');
       }
 
       setState(() {
-        _posts = posts;
+        _posts = processedPosts;
         _isLoadingPosts = false;
       });
 
@@ -173,7 +190,6 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
     }
   }
 
-  // ✅ NEW: Show dialog to create or edit post
   Future<void> _showPostDialog([Map<String, dynamic>? post]) async {
     if (_selectedCategory == null) return;
 
@@ -194,7 +210,6 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Category Display
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -274,13 +289,12 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
               }
 
               try {
-                // Get current user ID
                 final user = Supabase.instance.client.auth.currentUser;
                 if (user == null) {
                   throw Exception('No user logged in');
                 }
 
-                // Try to get user_id from users table by email
+                // ✅ Get real user_id from users table
                 final userResponse = await Supabase.instance.client
                     .from('users')
                     .select('user_id')
@@ -306,13 +320,11 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
                 };
 
                 if (isEditing) {
-                  // Update existing post
                   await Supabase.instance.client
                       .from('posts')
                       .update(postData)
                       .eq('post_id', post['post_id']);
                 } else {
-                  // Create new post
                   await Supabase.instance.client
                       .from('posts')
                       .insert(postData);
@@ -619,8 +631,10 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
   }
 
   Widget _buildPostCard(Map<String, dynamic> post, int index) {
-    final authorId = post['author_id'] as int;
-    final author = _userCache[authorId];
+    final userName = post['user_name'] as String;
+    final userEmail = post['user_email'] as String?;
+    final userImage = post['user_image'] as String?;
+    final userRole = post['user_role'] as String?;
     final content = post['content'] as String? ?? '';
     final mediaUrl = post['media_url'] as String?;
     final fileUrl = post['file_url'] as String?;
@@ -650,18 +664,20 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
             child: Row(
               children: [
                 CircleAvatar(
-                  radius: 20,
+                  radius: 24,
                   backgroundColor: Colors.red[100],
-                  child: Text(
-                    author?['full_name'] != null
-                        ? (author!['full_name'] as String)[0].toUpperCase()
-                        : '?',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
-                    ),
-                  ),
+                  backgroundImage:
+                      userImage != null ? NetworkImage(userImage) : null,
+                  child: userImage == null
+                      ? Text(
+                          userName[0].toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                          ),
+                        )
+                      : null,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -669,12 +685,41 @@ class _ManagePostsByCategoryPageState extends State<ManagePostsByCategoryPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        author?['full_name'] ?? 'Unknown User',
+                        userName,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
                         ),
                       ),
+                      if (userEmail != null)
+                        Text(
+                          userEmail,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      if (userRole != null) ...[
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            userRole,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.red,
+                            ),
+                          ),
+                        ),
+                      ],
                       if (createdAt != null)
                         Text(
                           _timeAgo(createdAt),

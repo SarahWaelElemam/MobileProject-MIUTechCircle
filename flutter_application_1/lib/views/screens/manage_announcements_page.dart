@@ -12,7 +12,6 @@ class ManageAnnouncementsPage extends StatefulWidget {
 class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
   List<Map<String, dynamic>> _announcements = [];
   List<Map<String, dynamic>> _categories = [];
-  Map<int, Map<String, dynamic>> _userCache = {};
   Map<int, String> _categoryCache = {};
   bool _isLoading = true;
   String? _errorMessage;
@@ -53,54 +52,69 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
     });
 
     try {
-      // ✅ Select all announcements (no category filtering)
+      debugPrint('📥 Loading announcements...');
+
+      // ✅ FIXED: Use ann_id instead of announcement_id
       final response = await Supabase.instance.client
           .from('announcement')
-          .select('*')
+          .select('''
+            ann_id,
+            title,
+            description,
+            date,
+            time,
+            category_id,
+            auth_id,
+            created_at,
+            users!auth_id (
+              user_id,
+              name,
+              email,
+              profile_image,
+              role
+            )
+          ''')
           .order('date', ascending: false)
           .order('time', ascending: false);
 
-      List<Map<String, dynamic>> announcements = List<Map<String, dynamic>>.from(response);
+      debugPrint('✅ Found ${(response as List).length} announcements');
 
-      // Fetch user details
-      Set<int> authorIds = announcements
-          .where((e) => e['auth_id'] != null)
-          .map((e) => e['auth_id'] as int)
-          .toSet();
-      
-      for (int authorId in authorIds) {
-        if (!_userCache.containsKey(authorId)) {
-          try {
-            final userResponse = await Supabase.instance.client
-                .from('users')
-                .select()
-                .eq('user_id', authorId)
-                .maybeSingle();
+      List<Map<String, dynamic>> processedAnnouncements = [];
 
-            if (userResponse != null) {
-              _userCache[authorId] = userResponse;
-            }
-          } catch (e) {
-            debugPrint('⚠️ Could not load user $authorId: $e');
-            _userCache[authorId] = {
-              'user_id': authorId,
-              'full_name': 'User $authorId',
-              'email': '',
-            };
-          }
-        }
+      for (var announcement in response) {
+        final userData = announcement['users'];
+        
+        final String userName = userData?['name'] ?? 'Unknown User';
+        final String? userEmail = userData?['email'];
+        final String? userImage = userData?['profile_image'];
+        final String? userRole = userData?['role'];
+
+        processedAnnouncements.add({
+          'ann_id': announcement['ann_id'],  // ✅ FIXED
+          'title': announcement['title'],
+          'description': announcement['description'],
+          'date': announcement['date'],
+          'time': announcement['time'],
+          'category_id': announcement['category_id'],
+          'auth_id': announcement['auth_id'],
+          'user_name': userName,
+          'user_email': userEmail,
+          'user_image': userImage,
+          'user_role': userRole,
+        });
+
+        debugPrint('  ✅ Announcement by: $userName ($userEmail)');
       }
 
-      // Filter by time
       if (_filterType == 'upcoming') {
-        announcements = announcements.where((announcement) {
+        processedAnnouncements = processedAnnouncements.where((announcement) {
           if (announcement['date'] == null) return false;
           final eventDate = DateTime.parse(announcement['date']);
           return eventDate.isAfter(DateTime.now()) ||
               eventDate.isAtSameMomentAs(DateTime.now());
         }).toList();
       } else if (_filterType == 'past') {
-        announcements = announcements.where((announcement) {
+        processedAnnouncements = processedAnnouncements.where((announcement) {
           if (announcement['date'] == null) return false;
           final eventDate = DateTime.parse(announcement['date']);
           return eventDate.isBefore(DateTime.now());
@@ -108,7 +122,7 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
       }
 
       setState(() {
-        _announcements = announcements;
+        _announcements = processedAnnouncements;
         _isLoading = false;
       });
 
@@ -122,24 +136,36 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
     }
   }
 
-  Future<void> _deleteAnnouncement(int announcementId, int index) async {
+  // ✅ FIXED: Use ann_id
+  Future<void> _deleteAnnouncement(int annId, int index) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Announcement'),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Text('Delete Announcement'),
+          ],
+        ),
         content: const Text(
           'Are you sure you want to delete this announcement? This action cannot be undone.',
+          style: TextStyle(fontSize: 15),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(fontSize: 15)),
           ),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            icon: const Icon(Icons.delete, size: 18),
+            label: const Text('Delete', style: TextStyle(color: Colors.white, fontSize: 15)),
           ),
         ],
       ),
@@ -150,7 +176,7 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
         await Supabase.instance.client
             .from('announcement')
             .delete()
-            .eq('announcement_id', announcementId);
+            .eq('ann_id', annId);  // ✅ FIXED
 
         setState(() {
           _announcements.removeAt(index);
@@ -158,9 +184,17 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Announcement deleted successfully'),
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 12),
+                  Text('Announcement deleted successfully', style: TextStyle(fontSize: 15)),
+                ],
+              ),
               backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
           );
         }
@@ -168,8 +202,16 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('❌ Error: $e'),
+              content: Row(
+                children: [
+                  const Icon(Icons.error, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text('Error: $e', style: const TextStyle(fontSize: 15))),
+                ],
+              ),
               backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
           );
         }
@@ -177,7 +219,6 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
     }
   }
 
-  // ✅ NEW: Show dialog to create or edit announcement
   Future<void> _showAnnouncementDialog([Map<String, dynamic>? announcement]) async {
     final isEditing = announcement != null;
     final titleController = TextEditingController(text: announcement?['title'] ?? '');
@@ -199,7 +240,24 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(isEditing ? 'Edit Announcement' : 'New Announcement'),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  isEditing ? Icons.edit : Icons.add,
+                  color: Colors.purple,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(isEditing ? 'Edit Announcement' : 'New Announcement'),
+            ],
+          ),
           content: SingleChildScrollView(
             child: SizedBox(
               width: 500,
@@ -209,28 +267,36 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                 children: [
                   TextField(
                     controller: titleController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Title *',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.title),
+                      filled: true,
+                      fillColor: Colors.grey[50],
                     ),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: descriptionController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
+                    maxLines: 4,
+                    decoration: InputDecoration(
                       labelText: 'Description',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.description),
+                      filled: true,
+                      fillColor: Colors.grey[50],
                     ),
                   ),
                   const SizedBox(height: 16),
                   
-                  // Category Dropdown
                   DropdownButtonFormField<int>(
                     value: selectedCategoryId,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Category *',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.category),
+                      filled: true,
+                      fillColor: Colors.grey[50],
                     ),
                     items: _categories.map((cat) {
                       return DropdownMenuItem<int>(
@@ -246,13 +312,14 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                   ),
                   const SizedBox(height: 16),
                   
-                  // Date Picker
                   TextFormField(
                     controller: dateController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Date *',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.calendar_today),
+                      border: const OutlineInputBorder(),
+                      suffixIcon: const Icon(Icons.calendar_today),
+                      filled: true,
+                      fillColor: Colors.grey[50],
                     ),
                     readOnly: true,
                     onTap: () async {
@@ -272,13 +339,14 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                   ),
                   const SizedBox(height: 16),
                   
-                  // Time Picker
                   TextFormField(
                     controller: timeController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Time *',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.access_time),
+                      border: const OutlineInputBorder(),
+                      suffixIcon: const Icon(Icons.access_time),
+                      filled: true,
+                      fillColor: Colors.grey[50],
                     ),
                     readOnly: true,
                     onTap: () async {
@@ -301,41 +369,55 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: const Text('Cancel', style: TextStyle(fontSize: 15)),
             ),
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: () async {
                 if (titleController.text.trim().isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a title'),
+                    SnackBar(
+                      content: const Row(
+                        children: [
+                          Icon(Icons.warning, color: Colors.white),
+                          SizedBox(width: 12),
+                          Text('Please enter a title', style: TextStyle(fontSize: 15)),
+                        ],
+                      ),
                       backgroundColor: Colors.orange,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   );
                   return;
                 }
                 if (selectedCategoryId == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please select a category'),
+                    SnackBar(
+                      content: const Row(
+                        children: [
+                          Icon(Icons.warning, color: Colors.white),
+                          SizedBox(width: 12),
+                          Text('Please select a category', style: TextStyle(fontSize: 15)),
+                        ],
+                      ),
                       backgroundColor: Colors.orange,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   );
                   return;
                 }
 
                 try {
-                  // Get current user ID
                   final user = Supabase.instance.client.auth.currentUser;
                   if (user == null) {
                     throw Exception('No user logged in');
                   }
 
-                  // Get user_id from users table
                   final userResponse = await Supabase.instance.client
                       .from('users')
                       .select('user_id')
-                      .eq('auth_uuid', user.id)
+                      .eq('email', user.email!)
                       .maybeSingle();
 
                   if (userResponse == null) {
@@ -354,13 +436,12 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                   };
 
                   if (isEditing) {
-                    // Update existing announcement
+                    // ✅ FIXED: Use ann_id
                     await Supabase.instance.client
                         .from('announcement')
                         .update(announcementData)
-                        .eq('announcement_id', announcement['announcement_id']);
+                        .eq('ann_id', announcement['ann_id']);
                   } else {
-                    // Create new announcement
                     await Supabase.instance.client
                         .from('announcement')
                         .insert(announcementData);
@@ -372,12 +453,21 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(
-                          isEditing
-                              ? '✅ Announcement updated successfully'
-                              : '✅ Announcement created successfully',
+                        content: Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Colors.white),
+                            const SizedBox(width: 12),
+                            Text(
+                              isEditing
+                                  ? 'Announcement updated successfully'
+                                  : 'Announcement created successfully',
+                              style: const TextStyle(fontSize: 15),
+                            ),
+                          ],
                         ),
                         backgroundColor: Colors.green,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     );
                   }
@@ -385,22 +475,193 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('❌ Error: $e'),
+                        content: Row(
+                          children: [
+                            const Icon(Icons.error, color: Colors.white),
+                            const SizedBox(width: 12),
+                            Expanded(child: Text('Error: $e', style: const TextStyle(fontSize: 15))),
+                          ],
+                        ),
                         backgroundColor: Colors.red,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     );
                   }
                 }
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-              child: Text(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              icon: Icon(isEditing ? Icons.save : Icons.add, size: 18),
+              label: Text(
                 isEditing ? 'Update' : 'Create',
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: Colors.white, fontSize: 15),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _duplicateAnnouncement(Map<String, dynamic> announcement) async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) {
+        throw Exception('No user logged in');
+      }
+
+      final userResponse = await Supabase.instance.client
+          .from('users')
+          .select('user_id')
+          .eq('email', user.email!)
+          .maybeSingle();
+
+      if (userResponse == null) {
+        throw Exception('User not found in database');
+      }
+
+      final userId = userResponse['user_id'] as int;
+
+      final duplicateData = {
+        'title': '${announcement['title']} (Copy)',
+        'description': announcement['description'],
+        'date': announcement['date'],
+        'time': announcement['time'],
+        'category_id': announcement['category_id'],
+        'auth_id': userId,
+      };
+
+      await Supabase.instance.client
+          .from('announcement')
+          .insert(duplicateData);
+
+      _loadAnnouncements();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.copy, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Announcement duplicated successfully', style: TextStyle(fontSize: 15)),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Error: $e', style: const TextStyle(fontSize: 15))),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  void _viewAnnouncementDetails(Map<String, dynamic> announcement) {
+    final categoryName = _categoryCache[announcement['category_id']];
+    final eventDate = announcement['date'] != null 
+        ? DateTime.parse(announcement['date'])
+        : null;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.purple.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.info_outline, color: Colors.purple, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Announcement Details')),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDetailRow('Title', announcement['title'], Icons.title),
+              const Divider(height: 24),
+              _buildDetailRow('Description', announcement['description'] ?? 'N/A', Icons.description),
+              const Divider(height: 24),
+              _buildDetailRow('Category', categoryName ?? 'N/A', Icons.category),
+              const Divider(height: 24),
+              _buildDetailRow(
+                'Date', 
+                eventDate != null ? DateFormat('EEEE, MMMM d, y').format(eventDate) : 'N/A',
+                Icons.calendar_today,
+              ),
+              const Divider(height: 24),
+              _buildDetailRow('Time', announcement['time'] ?? 'N/A', Icons.access_time),
+              const Divider(height: 24),
+              _buildDetailRow('Created by', announcement['user_name'], Icons.person),
+              const Divider(height: 24),
+              _buildDetailRow('Email', announcement['user_email'] ?? 'N/A', Icons.email),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close', style: TextStyle(fontSize: 15)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, IconData icon) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: Colors.purple),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: const TextStyle(fontSize: 15),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -417,6 +678,7 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadAnnouncements,
+            tooltip: 'Refresh',
           ),
         ],
       ),
@@ -431,36 +693,31 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
           Container(
             color: Colors.white,
             padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    _buildFilterChip('All', 'all'),
-                    const SizedBox(width: 12),
-                    _buildFilterChip('Upcoming', 'upcoming'),
-                    const SizedBox(width: 12),
-                    _buildFilterChip('Past', 'past'),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.purple[50],
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${_announcements.length} announcements',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.purple,
-                        ),
-                      ),
+                _buildFilterChip('All', 'all'),
+                const SizedBox(width: 12),
+                _buildFilterChip('Upcoming', 'upcoming'),
+                const SizedBox(width: 12),
+                _buildFilterChip('Past', 'past'),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.purple[50],
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_announcements.length} announcements',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.purple,
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -474,21 +731,15 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.error_outline,
-                                size: 64, color: Colors.grey[400]),
+                            Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
                             const SizedBox(height: 16),
-                            Text(
-                              'Error',
-                              style: TextStyle(
-                                  fontSize: 18, color: Colors.grey[600]),
-                            ),
+                            Text('Error', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
                             const SizedBox(height: 8),
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 20),
                               child: Text(
                                 _errorMessage!,
-                                style: TextStyle(
-                                    fontSize: 14, color: Colors.grey[500]),
+                                style: TextStyle(fontSize: 14, color: Colors.grey[500]),
                                 textAlign: TextAlign.center,
                               ),
                             ),
@@ -510,14 +761,11 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.campaign_outlined,
-                                    size: 80, color: Colors.grey[400]),
+                                Icon(Icons.campaign_outlined, size: 80, color: Colors.grey[400]),
                                 const SizedBox(height: 16),
-                                Text(
-                                  'No announcements found',
-                                  style: TextStyle(
-                                      fontSize: 18, color: Colors.grey[600]),
-                                ),
+                                Text('No announcements found', style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+                                const SizedBox(height: 8),
+                                Text('Create your first announcement', style: TextStyle(fontSize: 14, color: Colors.grey[500])),
                               ],
                             ),
                           )
@@ -552,6 +800,10 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
         decoration: BoxDecoration(
           color: isSelected ? Colors.purple : Colors.grey[200],
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? Colors.purple : Colors.transparent,
+            width: 2,
+          ),
         ),
         child: Text(
           label,
@@ -570,10 +822,11 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
     final description = announcement['description'] as String? ?? '';
     final dateStr = announcement['date'] as String?;
     final timeStr = announcement['time'] as String?;
-    final authorId = announcement['auth_id'] as int?;
+    final userName = announcement['user_name'] as String;
+    final userImage = announcement['user_image'] as String?;
     final categoryId = announcement['category_id'] as int?;
-    final author = authorId != null ? _userCache[authorId] : null;
     final categoryName = categoryId != null ? _categoryCache[categoryId] : null;
+    final annId = announcement['ann_id'] as int? ?? 0;  // ✅ FIXED
 
     DateTime? eventDate;
     if (dateStr != null) {
@@ -583,22 +836,13 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
     final isUpcoming = eventDate != null && eventDate.isAfter(DateTime.now());
     final isPast = eventDate != null && eventDate.isBefore(DateTime.now());
 
-    // Get announcement_id - check different possible field names
-    final announcementId = announcement['announcement_id'] as int? ??
-        announcement['id'] as int? ??
-        0;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isUpcoming
-              ? Colors.green
-              : isPast
-                  ? Colors.grey.shade300
-                  : Colors.transparent,
+          color: isUpcoming ? Colors.green : isPast ? Colors.grey.shade300 : Colors.purple.shade200,
           width: 2,
         ),
         boxShadow: [
@@ -639,11 +883,7 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                   ),
                   child: Icon(
                     Icons.campaign,
-                    color: isUpcoming
-                        ? Colors.green
-                        : isPast
-                            ? Colors.grey
-                            : Colors.purple,
+                    color: isUpcoming ? Colors.green : isPast ? Colors.grey : Colors.purple,
                     size: 24,
                   ),
                 ),
@@ -654,31 +894,38 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                     children: [
                       Text(
                         title,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
-                          if (author != null)
-                            Text(
-                              'By ${author['full_name'] ?? 'Unknown'}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
+                          CircleAvatar(
+                            radius: 10,
+                            backgroundColor: Colors.purple[100],
+                            backgroundImage: userImage != null ? NetworkImage(userImage) : null,
+                            child: userImage == null
+                                ? Text(
+                                    userName[0].toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.purple,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'By $userName',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                              overflow: TextOverflow.ellipsis,
                             ),
+                          ),
                           if (categoryName != null) ...[
-                            Text(
-                              ' • ',
-                              style: TextStyle(color: Colors.grey[600]),
-                            ),
+                            Text(' • ', style: TextStyle(color: Colors.grey[600])),
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
                                 color: Colors.purple.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(10),
@@ -699,24 +946,13 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: isUpcoming
-                        ? Colors.green
-                        : isPast
-                            ? Colors.grey
-                            : Colors.purple,
+                    color: isUpcoming ? Colors.green : isPast ? Colors.grey : Colors.purple,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    isUpcoming
-                        ? 'UPCOMING'
-                        : isPast
-                            ? 'PAST'
-                            : 'SCHEDULED',
+                    isUpcoming ? 'UPCOMING' : isPast ? 'PAST' : 'SCHEDULED',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -740,10 +976,7 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                       const SizedBox(width: 8),
                       Text(
                         DateFormat('EEEE, MMMM d, y').format(eventDate),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
                       ),
                     ],
                   ),
@@ -755,32 +988,18 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                       const SizedBox(width: 8),
                       Text(
                         timeStr,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
                       ),
                     ],
                   ),
                 ],
-
                 if (description.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  const Text(
-                    'Description',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
                   Text(
                     description,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[700],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ],
@@ -797,45 +1016,55 @@ class _ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
               ),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                if (announcementId > 0) ...[
-                  // ✅ Edit Button
-                  ElevatedButton.icon(
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _viewAnnouncementDetails(announcement),
+                    icon: const Icon(Icons.visibility, size: 16),
+                    label: const Text('View', style: TextStyle(fontSize: 13)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.purple,
+                      side: const BorderSide(color: Colors.purple),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _duplicateAnnouncement(announcement),
+                    icon: const Icon(Icons.copy, size: 16),
+                    label: const Text('Duplicate', style: TextStyle(fontSize: 13)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.blue,
+                      side: const BorderSide(color: Colors.blue),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
                     onPressed: () => _showAnnouncementDialog(announcement),
-                    icon: const Icon(Icons.edit, size: 18),
-                    label: const Text('Edit'),
+                    icon: const Icon(Icons.edit, size: 16),
+                    label: const Text('Edit', style: TextStyle(fontSize: 13)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
+                      backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  // Delete Button
-                  ElevatedButton.icon(
-                    onPressed: () => _deleteAnnouncement(announcementId, index),
-                    icon: const Icon(Icons.delete, size: 18),
-                    label: const Text('Delete'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () => _deleteAnnouncement(annId, index),  // ✅ FIXED
+                  icon: const Icon(Icons.delete, size: 20),
+                  color: Colors.red,
+                  tooltip: 'Delete',
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.red.withOpacity(0.1),
                   ),
-                ],
+                ),
               ],
             ),
           ),
