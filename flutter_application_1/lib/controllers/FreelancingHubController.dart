@@ -440,17 +440,24 @@ class FreelancingHubController {
 
       // Check if already applied using UUID (more reliable) or int ID
       try {
-        var query = _supabase
+        final baseQuery = _supabase
             .from('freelance_applications')
             .select('application_id')
             .eq('project_id', projectId);
 
-        // Check both UUID and int ID if columns exist
-        final existing = await query
-            .or(
-              'applicant_id.eq.$numericUserId,applicant_uuid.eq.${currentUser.id}',
-            )
-            .maybeSingle();
+        Map<String, dynamic>? existing;
+
+        if (numericUserId != null) {
+          existing = await baseQuery
+              .or(
+                'applicant_id.eq.$numericUserId,applicant_uuid.eq.${currentUser.id}',
+              )
+              .maybeSingle();
+        } else {
+          existing = await baseQuery
+              .eq('applicant_uuid', currentUser.id)
+              .maybeSingle();
+        }
 
         if (existing != null) {
           debugPrint('⚠️ User already applied to this project');
@@ -478,8 +485,9 @@ class FreelancingHubController {
         userLocation: userLocation,
       );
 
-      aiScore = aiResult['score'];
-      aiReason = aiResult['reason'];
+      // Safe casting from dynamic map
+      aiScore = (aiResult['score'] as num?)?.toDouble() ?? 0.0;
+      aiReason = aiResult['reason']?.toString() ?? '';
 
       // Insert application
       // Use REAL user_id as foreign key if available
