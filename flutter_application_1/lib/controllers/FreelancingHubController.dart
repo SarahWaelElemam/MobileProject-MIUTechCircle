@@ -462,8 +462,8 @@ class FreelancingHubController {
     }
   }
 
-  // AI Feature: Calculate skill match percentage
-  static Future<double> calculateSkillMatchScore(
+  // basic Feature without ai : Calculate skill match percentage without ai
+  static Future<double> calculateSkillMatchScoreWithoutAI(
     String applicantIdStr,
     List<String> requiredSkills,
   ) async {
@@ -531,19 +531,7 @@ class FreelancingHubController {
     try {
       debugPrint('🔄 Recalculating score for App: $applicationId');
 
-      // 1. Fetch Project Details
-      final projectData = await _supabase
-          .from('freelance_projects')
-          .select('skills_needed, description')
-          .eq('project_id', projectId)
-          .single();
-
-      final projectSkills = List<String>.from(
-        projectData['skills_needed'] ?? [],
-      );
-      final projectDesc = projectData['description']?.toString() ?? '';
-
-      // 2. Fetch User Skills (using UUID from 'users' table or direct linkage if needed)
+      // 1. Fetch User Details to prepare for AI Analysis
       // We need to resolve UUID to Int ID if skills table uses Int ID.
       int? numericUserId;
       String? userRole;
@@ -571,25 +559,11 @@ class FreelancingHubController {
         // Fallback or ignore
       }
 
-      List<String> userSkills = [];
-      List<String> userExperiences = [];
-      List<String> userLicenses = [];
-
-      if (numericUserId != null) {
-        final qual = await _fetchUserQualifications(numericUserId);
-        userSkills = qual['skills']!;
-        userExperiences = qual['experiences']!;
-        userLicenses = qual['licenses']!;
-      }
-
-      // 3. Call AI Service
-      final analysis = await AIService.analyzeApplication(
-        userSkills: userSkills,
-        userExperiences: userExperiences,
-        userLicenses: userLicenses,
+      // 2. Call AI Helper
+      final aiResult = await _calculateApplicationScore(
+        projectId: projectId,
+        numericUserId: numericUserId,
         introduction: introduction,
-        projectSkills: projectSkills,
-        projectDescription: projectDesc,
         userRole: userRole,
         userDepartment: userDepartment,
         userAcademicYear: userAcademicYear,
@@ -597,8 +571,8 @@ class FreelancingHubController {
         userLocation: userLocation,
       );
 
-      final newScore = analysis['score'] ?? 0.0;
-      final newFeedback = analysis['reason'] ?? '';
+      final newScore = aiResult['score'];
+      final newFeedback = aiResult['reason'];
 
       // 4. Update Database
       await _supabase

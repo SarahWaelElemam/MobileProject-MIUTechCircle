@@ -72,10 +72,11 @@ class _ManageApplicationsPageState extends State<ManageApplicationsPage> {
             );
             // Use the numeric ID (applicant_id) not UUID for checking skills table
             final numericId = app['applicant_id']?.toString() ?? '0';
-            aiScore = await FreelancingHubController.calculateSkillMatchScore(
-              numericId,
-              skillsNeeded,
-            );
+            aiScore =
+                await FreelancingHubController.calculateSkillMatchScoreWithoutAI(
+                  numericId,
+                  skillsNeeded,
+                );
           }
 
           // Fetch user email from the application itself (stored during submission)
